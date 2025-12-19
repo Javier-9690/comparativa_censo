@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Conciliación · Sistema de gestión de tarjetas{% endblock %}
+
+{% block content %}
+<div class="content-container">
+  <div class="page-title">Conciliación</div>
+
+  <div class="alert alert-info">
+    Esta sección queda lista para implementar las reglas de “match” que me indiques en el siguiente mensaje.
+    {% if token %}
+      <div class="mt-2">
+        Último token en sesión: <span class="fw-semibold">{{ token }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <ul class="mb-0">
+    <li>Match de habitaciones vía mapa (HABITACION ⇄ HKEYPLUS ⇄ nomenclatura del log).</li>
+    <li>Cruce ocupación vs log de tarjetas (por habitación y ventana de fechas).</li>
+    <li>Salida: tabla de hallazgos + exportable (Excel/CSV).</li>
+  </ul>
+</div>
+{% endblock %}
