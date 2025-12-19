@@ -6,7 +6,7 @@
   <div class="page-title">Conciliación</div>
 
   <div class="alert alert-info">
-    Esta sección queda lista para implementar las reglas de “match” que me indiques en el siguiente mensaje.
+    Esta sección queda lista para implementar el match (equivalencias + ventanas de fechas).
     {% if token %}
       <div class="mt-2">
         Último token en sesión: <span class="fw-semibold">{{ token }}</span>
@@ -16,8 +16,8 @@
 
   <ul class="mb-0">
     <li>Match de habitaciones vía mapa (HABITACION ⇄ HKEYPLUS ⇄ nomenclatura del log).</li>
-    <li>Cruce ocupación vs log de tarjetas (por habitación y ventana de fechas).</li>
-    <li>Salida: tabla de hallazgos + exportable (Excel/CSV).</li>
+    <li>Cruce ocupación vs log de tarjetas (por habitación y rango INICIO/TERMINO).</li>
+    <li>Salida: tabla final + exportable.</li>
   </ul>
 </div>
 {% endblock %}
