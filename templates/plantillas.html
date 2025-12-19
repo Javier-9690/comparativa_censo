@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Plantillas · Sistema de gestión de tarjetas{% endblock %}
+
+{% block content %}
+<div class="content-container">
+
+  <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <div class="page-title mb-1">Plantillas de carga</div>
+      <div class="text-muted">
+        Descarga las plantillas oficiales y mantén los encabezados sin cambios para evitar errores al importar.
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <div class="col-12 col-lg-4">
+      <div class="filter-card h-100">
+        <div class="fw-semibold mb-2">
+          <i class="fa-solid fa-bed me-2"></i>Plantilla Ontracking (Ocupación)
+        </div>
+        <div class="text-muted small mb-3">
+          MODULO, LUGAR, HABITACION, EMPRESA, ID, CAMA, INICIO, TERMINO, DIA, CAMAS_OCUPADAS, RUT, NOMBRE.
+        </div>
+        <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">
+          <i class="fa-solid fa-download me-1"></i> Descargar
+        </a>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <div class="filter-card h-100">
+        <div class="fw-semibold mb-2">
+          <i class="fa-solid fa-id-card me-2"></i>Plantilla Log de Tarjetas
+        </div>
+        <div class="text-muted small mb-3">
+          NRO_TARJETA, NRO_HABITACION, HABITACION, METODO_APERTURA_PUERTA, TIPO_DE_TARJETA, FECHA, DUENO_CODIGO, DUENO_NOMBRE.
+        </div>
+        <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">
+          <i class="fa-solid fa-download me-1"></i> Descargar
+        </a>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-4">
+      <div class="filter-card h-100">
+        <div class="fw-semibold mb-2">
+          <i class="fa-solid fa-map-location-dot me-2"></i>Plantilla Mapa Habitaciones
+        </div>
+        <div class="text-muted small mb-3">
+          HABITACION, MODULO, PISO, HKEYPLUS.
+        </div>
+        <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">
+          <i class="fa-solid fa-download me-1"></i> Descargar
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
