@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Importación · Sistema de gestión de tarjetas{% endblock %}
+
+{% block content %}
+<div class="content-container">
+
+  <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <div class="page-title mb-1">Importación de Excel</div>
+      <div class="text-muted">Sube los 3 archivos para comenzar el cruce (ocupación, log de tarjetas y equivalencias).</div>
+    </div>
+  </div>
+
+  <div class="filter-card">
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-bed me-1"></i> Excel Ocupación
+        </label>
+        <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls" required>
+        <div class="form-text">
+          Esperado (ej.): MODULO, LUGAR, HABITACION, RUT, NOMBRE, INICIO, TERMINO...
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-id-card me-1"></i> Excel Log de Tarjetas
+        </label>
+        <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls" required>
+        <div class="form-text">
+          Esperado (ej.): NRO. TARJETA, NRO. HABITACIÓN, HABITACIÓN, FECHA... (si “Dueño” se duplica, se normaliza).
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold">
+          <i class="fa-solid fa-map-location-dot me-1"></i> Excel Mapa Habitaciones
+        </label>
+        <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls" required>
+        <div class="form-text">
+          Requerido: HABITACION, MODULO, PISO, HKEYPLUS.
+        </div>
+      </div>
+
+      <div class="col-12 d-flex justify-content-end">
+        <button class="btn btn-primary-custom" type="submit">
+          <i class="fa-solid fa-upload me-1"></i> Importar y previsualizar
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+</div>
+{% endblock %}
