@@ -2,6 +2,7 @@ Flask
 gunicorn
 pandas
 openpyxl
+xlrd
 python-dotenv
 SQLAlchemy
 psycopg2-binary
