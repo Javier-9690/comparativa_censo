@@ -7,7 +7,7 @@
   <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
     <div>
       <div class="page-title mb-1">Importación de Excel</div>
-      <div class="text-muted">Sube los 3 archivos para comenzar el cruce (ocupación, log de tarjetas y equivalencias).</div>
+      <div class="text-muted">Sube los 3 archivos para guardar el lote en PostgreSQL (Render).</div>
     </div>
   </div>
 
@@ -16,11 +16,11 @@
 
       <div class="col-12 col-lg-4">
         <label class="form-label fw-semibold">
-          <i class="fa-solid fa-bed me-1"></i> Excel Ocupación
+          <i class="fa-solid fa-bed me-1"></i> Excel Ocupación (Ontracking)
         </label>
         <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls" required>
         <div class="form-text">
-          Esperado (ej.): MODULO, LUGAR, HABITACION, RUT, NOMBRE, INICIO, TERMINO...
+          Esperado: Modu/Luga/Habitaci/Inicio/Termin/RUT/NOMBRE (se normaliza automáticamente).
         </div>
       </div>
 
@@ -30,7 +30,7 @@
         </label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls" required>
         <div class="form-text">
-          Esperado (ej.): NRO. TARJETA, NRO. HABITACIÓN, HABITACIÓN, FECHA... (si “Dueño” se duplica, se normaliza).
+          Esperado: Nro. Tarjeta / Nro. Habitación / Habitación / Método / Tipo / Fecha / Dueño.
         </div>
       </div>
 
@@ -46,7 +46,7 @@
 
       <div class="col-12 d-flex justify-content-end">
         <button class="btn btn-primary-custom" type="submit">
-          <i class="fa-solid fa-upload me-1"></i> Importar y previsualizar
+          <i class="fa-solid fa-upload me-1"></i> Importar y guardar
         </button>
       </div>
 
