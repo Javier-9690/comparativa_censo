@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Previsualización · Sistema de gestión de tarjetas{% endblock %}
+
+{% block content %}
+<div class="content-container">
+
+  <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <div class="page-title mb-1">Previsualización</div>
+      <div class="text-muted">
+        Token: <span class="fw-semibold">{{ token }}</span>
+        {% if created_at %}· Importado: {{ created_at }}{% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('importar') }}">
+        <i class="fa-solid fa-rotate-left me-1"></i> Reimportar
+      </a>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0"><i class="fa-solid fa-bed me-2"></i>Ocupación ({{ ocup_n }} filas)</h5>
+      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='ocupacion') }}">
+        <i class="fa-solid fa-download me-1"></i> CSV
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for c in ocup_cols %}<th>{{ c }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ocup_rows %}
+          <tr>
+            {% for c in ocup_cols %}<td>{{ r.get(c, '') }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0"><i class="fa-solid fa-id-card me-2"></i>Log de Tarjetas ({{ log_n }} filas)</h5>
+      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='log_tarjetas') }}">
+        <i class="fa-solid fa-download me-1"></i> CSV
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for c in log_cols %}<th>{{ c }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in log_rows %}
+          <tr>
+            {% for c in log_cols %}<td>{{ r.get(c, '') }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="mb-2">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0"><i class="fa-solid fa-map-location-dot me-2"></i>Mapa Habitaciones ({{ map_n }} filas)</h5>
+      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='map_habitaciones') }}">
+        <i class="fa-solid fa-download me-1"></i> CSV
+      </a>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for c in map_cols %}<th>{{ c }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in map_rows %}
+          <tr>
+            {% for c in map_cols %}<td>{{ r.get(c, '') }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
