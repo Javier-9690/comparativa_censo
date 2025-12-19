@@ -21,6 +21,9 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
+from openpyxl.styles import Font, Alignment
+from openpyxl.utils import get_column_letter
+
 # ----------------------------
 # Env
 # ----------------------------
@@ -47,8 +50,7 @@ if not DATABASE_URL:
         "Falta DATABASE_URL. Configúrala en Render (Environment Variables) con el Internal Database URL."
     )
 
-# En Render normalmente funciona con SSL. Para desarrollo local, puedes setear:
-# DB_SSLMODE=prefer (o disable si tu Postgres local no usa SSL)
+# En Render suele funcionar con SSL. Para local puedes setear DB_SSLMODE=prefer o disable.
 DB_SSLMODE = os.getenv("DB_SSLMODE", "require")
 
 engine = create_engine(
@@ -136,7 +138,7 @@ def shutdown_session(exception=None):
     db_session.remove()
 
 
-# Inicializa tablas
+# Crea tablas si no existen
 init_db()
 
 # ----------------------------
@@ -225,7 +227,7 @@ ONTRACKING_COLMAP = {
     "HABITACION": ["HABITACION", "HABITACI", "HABITA", "HAB"],
     "EMPRESA": ["EMPRESA", "EMPRES"],
     "ID": ["ID"],
-    "CAMA": ["CAMA", "CAM", "CAR"],  # en tu captura aparece como "Car"
+    "CAMA": ["CAMA", "CAM", "CAR"],
     "INICIO": ["INICIO", "INICI"],
     "TERMINO": ["TERMINO", "TERMIN", "TERM"],
     "DIA": ["DIA"],
@@ -234,19 +236,17 @@ ONTRACKING_COLMAP = {
     "NOMBRE": ["NOMBRE", "NOMBR"],
 }
 
-
 CARDLOG_COLMAP = {
-    "NRO_TARJETA": ["NRO_TARJETA", "NRO_TARJET", "NRO", "NRO_TARJETA_", "NRO__TARJETA"],
-    "NRO_HABITACION": ["NRO_HABITACION", "NRO_HABITAC", "NRO_HABITACION_", "NRO__HABITACION", "NRO_HABITACION_"],
+    "NRO_TARJETA": ["NRO_TARJETA", "NRO_TARJET", "NRO_TARJ"],
+    "NRO_HABITACION": ["NRO_HABITACION", "NRO_HABITAC", "NRO_HAB"],
     "HABITACION": ["HABITACION", "HABITACI", "HABITA"],
-    "METODO_APERTURA_PUERTA": ["METODO_APERTURA_PUERTA", "METODO_APERTURA", "METODO", "METODO_APERTURA_PUERT"],
-    "TIPO_DE_TARJETA": ["TIPO_DE_TARJETA", "TIPO_TARJETA", "TIPO", "TIPO_DE_TARJET"],
+    "METODO_APERTURA_PUERTA": ["METODO_APERTURA_PUERTA", "METODO_APERTURA", "METODO"],
+    "TIPO_DE_TARJETA": ["TIPO_DE_TARJETA", "TIPO_TARJETA", "TIPO"],
     "FECHA": ["FECHA"],
-    # DUEÑO puede venir duplicado -> DUENO y DUENO_2
-    "DUENO": ["DUENO", "DUEÑO", "DUE_O", "DUE", "OWNER"],
+    # Dueño puede venir duplicado; tras normalize_columns suele ser DUENO y DUENO_2
+    "DUENO": ["DUENO", "DUEÑO", "OWNER"],
     "DUENO_2": ["DUENO_2", "DUEÑO_2"],
 }
-
 
 ROOMMAP_COLMAP = {
     "HABITACION": ["HABITACION", "HABITACI", "HABITA", "HAB"],
@@ -264,7 +264,6 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).str.strip()
 
-    # Opcional: parse fechas si vienen en formato fecha
     for c in ("INICIO", "TERMINO"):
         if c in df.columns:
             dt = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
@@ -276,17 +275,15 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
 def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, CARDLOG_COLMAP)
 
-    # Si venía DUEÑO duplicado, queda como DUENO y DUENO_2; lo renombramos a campos claros
+    # Manejo de Dueño duplicado
     if "DUENO" in df.columns and "DUENO_2" in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO", "DUENO_2": "DUENO_NOMBRE"})
     elif "DUENO" in df.columns and "DUENO_CODIGO" not in df.columns:
-        # si solo hay un DUENO, lo dejamos como DUENO_CODIGO
         df = df.rename(columns={"DUENO": "DUENO_CODIGO"})
 
     if "FECHA" in df.columns:
         df["FECHA_PARSED"] = parse_datetime_series(df["FECHA"]).astype(str)
 
-    # Limpiezas
     for c in ("NRO_TARJETA", "NRO_HABITACION", "HABITACION"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
@@ -302,6 +299,60 @@ def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
             df[c] = df[c].astype(str).str.strip()
 
     return df
+
+
+# ----------------------------
+# Plantillas Excel (para evitar errores)
+# ----------------------------
+TEMPLATE_COLUMNS = {
+    "ontracking": [
+        "MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA",
+        "INICIO", "TERMINO", "DIA", "CAMAS_OCUPADAS", "RUT", "NOMBRE"
+    ],
+    "log_tarjetas": [
+        "NRO_TARJETA", "NRO_HABITACION", "HABITACION",
+        "METODO_APERTURA_PUERTA", "TIPO_DE_TARJETA", "FECHA",
+        "DUENO_CODIGO", "DUENO_NOMBRE"
+    ],
+    "mapa_habitaciones": [
+        "HABITACION", "MODULO", "PISO", "HKEYPLUS"
+    ],
+}
+
+TEMPLATE_SHEETS = {
+    "ontracking": "Ontracking",
+    "log_tarjetas": "LogTarjetas",
+    "mapa_habitaciones": "MapaHabitaciones",
+}
+
+
+def build_template_xlsx(template_key: str) -> BytesIO:
+    cols = TEMPLATE_COLUMNS[template_key]
+    sheet = TEMPLATE_SHEETS[template_key]
+
+    df = pd.DataFrame(columns=cols)
+
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet)
+
+        ws = writer.book[sheet]
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+
+        header_font = Font(bold=True)
+        header_alignment = Alignment(horizontal="center", vertical="center")
+
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.alignment = header_alignment
+
+        for i, col_name in enumerate(cols, start=1):
+            width = max(16, min(45, len(col_name) + 2))
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+    bio.seek(0)
+    return bio
 
 
 # ----------------------------
@@ -323,6 +374,27 @@ def healthz():
 @app.get("/")
 def index():
     return redirect(url_for("importar"))
+
+
+@app.get("/plantillas")
+def plantillas():
+    return render_template("plantillas.html")
+
+
+@app.get("/plantilla/<template_key>.xlsx")
+def descargar_plantilla(template_key: str):
+    if template_key not in TEMPLATE_COLUMNS:
+        abort(404)
+
+    bio = build_template_xlsx(template_key)
+    filename = f"plantilla_{template_key}.xlsx"
+
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
 @app.route("/importar", methods=["GET", "POST"])
@@ -372,11 +444,11 @@ def importar():
                 flash(e, "danger")
             return redirect(url_for("importar"))
 
-        # Guardar en DB
+        # Guardar en DB (lote)
         token = uuid4().hex
         batch = UploadBatch(token=token)
         db_session.add(batch)
-        db_session.flush()  # asigna batch.id
+        db_session.flush()  # obtiene batch.id
 
         # Ontracking
         ocup_records = df_ocup.to_dict(orient="records")
@@ -469,8 +541,10 @@ def preview(token: str):
     log_n = db_session.query(func.count(CardLogRow.id)).filter_by(batch_id=batch.id).scalar() or 0
     map_n = db_session.query(func.count(RoomMapRow.id)).filter_by(batch_id=batch.id).scalar() or 0
 
-    ocup_cols = ["MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA", "INICIO", "TERMINO", "DIA", "CAMAS_OCUPADAS", "RUT", "NOMBRE"]
-    log_cols = ["NRO_TARJETA", "NRO_HABITACION", "HABITACION", "METODO_APERTURA_PUERTA", "TIPO_DE_TARJETA", "FECHA", "DUENO_CODIGO", "DUENO_NOMBRE"]
+    ocup_cols = ["MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA", "INICIO", "TERMINO", "DIA",
+                 "CAMAS_OCUPADAS", "RUT", "NOMBRE"]
+    log_cols = ["NRO_TARJETA", "NRO_HABITACION", "HABITACION", "METODO_APERTURA_PUERTA",
+                "TIPO_DE_TARJETA", "FECHA", "DUENO_CODIGO", "DUENO_NOMBRE"]
     map_cols = ["HABITACION", "MODULO", "PISO", "HKEYPLUS"]
 
     return render_template(
