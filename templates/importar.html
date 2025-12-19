@@ -11,6 +11,11 @@
     </div>
   </div>
 
+  <div class="alert alert-secondary">
+    Para evitar errores de formato, descarga las plantillas desde
+    <a href="{{ url_for('plantillas') }}" class="alert-link">Plantillas</a>.
+  </div>
+
   <div class="filter-card">
     <form method="post" enctype="multipart/form-data" class="row g-3">
 
@@ -20,7 +25,7 @@
         </label>
         <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls" required>
         <div class="form-text">
-          Esperado: Modu/Luga/Habitaci/Inicio/Termin/RUT/NOMBRE (se normaliza automáticamente).
+          Recomendado: usar la plantilla Ontracking.
         </div>
       </div>
 
@@ -30,7 +35,7 @@
         </label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls" required>
         <div class="form-text">
-          Esperado: Nro. Tarjeta / Nro. Habitación / Habitación / Método / Tipo / Fecha / Dueño.
+          Recomendado: usar la plantilla Log de Tarjetas.
         </div>
       </div>
 
@@ -40,7 +45,7 @@
         </label>
         <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls" required>
         <div class="form-text">
-          Requerido: HABITACION, MODULO, PISO, HKEYPLUS.
+          Recomendado: usar la plantilla Mapa Habitaciones.
         </div>
       </div>
 
