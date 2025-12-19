@@ -188,6 +188,13 @@
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
 
         <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'plantillas' %}active{% endif %}"
+             href="{{ url_for('plantillas') }}">
+            <i class="fa-solid fa-file-arrow-down"></i> Plantillas
+          </a>
+        </li>
+
+        <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'importar' %}active{% endif %}"
              href="{{ url_for('importar') }}">
             <i class="fa-solid fa-file-excel"></i> Importación
