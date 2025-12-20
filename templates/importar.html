@@ -8,7 +8,7 @@
     <div>
       <div class="page-title mb-0">Carga</div>
       <div class="text-muted small">
-        {% if last_dt %}Última carga: {{ last_dt }}{% else %}Sin cargas aún.{% endif %}
+        {% if last_dt %}Lote activo: {{ last_dt }}{% else %}Sin lote activo.{% endif %}
       </div>
     </div>
   </div>
@@ -45,6 +45,10 @@
         <button class="btn btn-primary-custom" type="submit">Guardar</button>
       </div>
     </form>
+
+    <div class="text-muted small mt-2">
+      Si vuelves a subir un archivo del mismo tipo, se reemplaza ese dataset dentro del lote activo.
+    </div>
   </div>
 
 </div>
