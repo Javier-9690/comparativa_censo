@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Carga · Sistema de gestión de tarjetas{% endblock %}
+{% block title %}Carga · Sistema de gestión{% endblock %}
 
 {% block content %}
 <div class="content-container">
@@ -18,13 +18,13 @@
       <div class="fw-semibold">Plantillas</div>
       <div class="btn-group" role="group">
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">
-          <i class="fa-solid fa-bed me-1"></i> Ontracking
+          Ontracking
         </a>
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">
-          <i class="fa-solid fa-id-card me-1"></i> Log Tarjetas
+          Log Tarjetas
         </a>
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">
-          <i class="fa-solid fa-map-location-dot me-1"></i> Mapa
+          Mapa
         </a>
       </div>
     </div>
@@ -33,23 +33,23 @@
   <div class="filter-card">
     <form method="post" enctype="multipart/form-data" class="row g-3">
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-bed me-1"></i>Ontracking</label>
+        <label class="form-label fw-semibold mb-1">Ontracking</label>
         <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-id-card me-1"></i>Log Tarjetas</label>
+        <label class="form-label fw-semibold mb-1">Log Tarjetas</label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-map-location-dot me-1"></i>Mapa</label>
+        <label class="form-label fw-semibold mb-1">Mapa</label>
         <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 d-flex justify-content-end">
         <button class="btn btn-primary-custom" type="submit">
-          <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
+          Guardar
         </button>
       </div>
     </form>
