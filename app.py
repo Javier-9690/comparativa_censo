@@ -81,8 +81,8 @@ class OntrackingRow(Base):
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
     modulo = Column(String(50))
-    lugar = Column(String(80), index=True)       # CLAVE que se muestra como habitación (S1805)
-    habitacion = Column(String(80))              # se guarda por si existe, pero no se usa para match en UI
+    lugar = Column(String(80), index=True)       # CLAVE mostrada (S1805)
+    habitacion = Column(String(80))              # se guarda si existe, no se usa para match
     empresa = Column(Text)
     ontracking_id = Column(String(80))
     cama = Column(String(20))
@@ -104,10 +104,10 @@ class CardLogRow(Base):
 
     nro_tarjeta = Column(String(50), index=True)
     nro_habitacion = Column(String(80), index=True)
-    habitacion = Column(String(80), index=True)  # L1805-2 (del archivo log)
+    habitacion = Column(String(80), index=True)  # L1805-2 (archivo log)
     metodo_apertura_puerta = Column(Text)
     tipo_tarjeta = Column(String(80))
-    fecha = Column(Text)                         # string original con hora (obligatoria)
+    fecha = Column(Text)                         # string original con hora
     dueno_codigo = Column(String(80))
     dueno_nombre = Column(Text)
 
@@ -139,6 +139,7 @@ def shutdown_session(exception=None):
 
 
 init_db()
+
 
 # =========================================================
 # HELPERS
@@ -236,6 +237,7 @@ def clamp_int(x, default, lo, hi):
 
 
 def get_active_batch():
+    """Lote activo: el de sesión o el más reciente."""
     bid = session.get("last_batch_id")
     if bid:
         b = db_session.query(UploadBatch).filter_by(id=bid).first()
@@ -246,7 +248,7 @@ def get_active_batch():
 
 def normalize_on_key(value: str) -> str:
     """
-    Normaliza clave Ontracking/Mapa para que se muestre como S#### cuando aplique.
+    Normaliza clave Ontracking/Mapa para que se vea como S#### si corresponde.
     - 'S1805' -> 'S1805'
     - '1805'  -> 'S1805'
     - '29'    -> 'S0029'
@@ -263,7 +265,7 @@ def normalize_on_key(value: str) -> str:
 
 
 def normalize_hk(value: str) -> str:
-    """Normaliza clave log HKEYPLUS (Lxxxx-2), sin alterar estructura, solo trim+upper."""
+    """Normaliza clave log HKEYPLUS/Lxxxx-2: trim+upper."""
     return str(value or "").strip().upper()
 
 
@@ -311,14 +313,13 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
-    # LUGAR es la clave que se mostrará como "Habitación" en Conciliación
+    # LUGAR es la clave "S1805" que se usa en conciliación
     if "LUGAR" in df.columns:
         df["LUGAR"] = df["LUGAR"].astype(str).apply(normalize_on_key)
 
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).str.strip()
 
-    # Fechas ISO
     for c in ("INICIO", "TERMINO", "DIA"):
         if c in df.columns:
             dt = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
@@ -329,6 +330,7 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
 def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, CARDLOG_COLMAP)
 
+    # Si trae Dueño duplicado (código y nombre)
     if "DUENO" in df.columns and "DUENO_2" in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO", "DUENO_2": "DUENO_NOMBRE"})
     elif "DUENO" in df.columns and "DUENO_CODIGO" not in df.columns:
@@ -343,6 +345,11 @@ def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
 
     if "FECHA" in df.columns:
         df["FECHA"] = df["FECHA"].astype(str).str.strip()
+
+    if "DUENO_CODIGO" in df.columns:
+        df["DUENO_CODIGO"] = df["DUENO_CODIGO"].astype(str).str.strip()
+    if "DUENO_NOMBRE" in df.columns:
+        df["DUENO_NOMBRE"] = df["DUENO_NOMBRE"].astype(str).str.strip()
 
     return df
 
@@ -448,11 +455,14 @@ def descargar_plantilla(template_key: str):
     )
 
 
+# ===========================
+# IMPORTAR (MISMO BATCH)
+# ===========================
 @app.route("/importar", methods=["GET", "POST"])
 def importar():
     if request.method == "GET":
-        last_batch = get_active_batch()
-        last_dt = last_batch.created_at if last_batch else None
+        batch = get_active_batch()
+        last_dt = batch.created_at if batch else None
         return render_template("importar.html", last_dt=last_dt)
 
     f_ocup = request.files.get("excel_ocupacion")
@@ -468,15 +478,19 @@ def importar():
         return redirect(url_for("importar"))
 
     try:
-        batch = UploadBatch(token=uuid4().hex)
-        db_session.add(batch)
-        db_session.flush()
+        # REUTILIZA BATCH ACTIVO. Si no hay, crea.
+        batch = get_active_batch()
+        if not batch:
+            batch = UploadBatch(token=uuid4().hex)
+            db_session.add(batch)
+            db_session.flush()
+            session["last_batch_id"] = batch.id
 
         saved_sets = []
 
+        # Reemplaza dataset dentro del mismo batch (evita duplicados)
         if has_ocup:
             df = canonicalize_ontracking(read_excel_upload(f_ocup))
-            # Requerimos LUGAR y DIA para conciliación
             errors = validate_required(df, {"LUGAR", "DIA", "RUT", "NOMBRE"}, "Ontracking")
             if errors:
                 for e in errors:
@@ -484,12 +498,14 @@ def importar():
                 db_session.rollback()
                 return redirect(url_for("importar"))
 
+            db_session.query(OntrackingRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
+
             rows = []
             for r in df.to_dict(orient="records"):
                 rows.append({
                     "batch_id": batch.id,
                     "modulo": r.get("MODULO", ""),
-                    "lugar": r.get("LUGAR", ""),          # CLAVE
+                    "lugar": r.get("LUGAR", ""),          # S1805
                     "habitacion": r.get("HABITACION", ""),
                     "empresa": r.get("EMPRESA", ""),
                     "ontracking_id": r.get("ID", ""),
@@ -504,17 +520,18 @@ def importar():
                 })
             if rows:
                 db_session.bulk_insert_mappings(OntrackingRow, rows)
-            saved_sets.append("Ontracking")
+            saved_sets.append("Ontracking (reemplazado)")
 
         if has_log:
             df = canonicalize_cardlog(read_excel_upload(f_log))
-            # FECHA obligatoria
             errors = validate_required(df, {"HABITACION", "FECHA"}, "Log Tarjetas")
             if errors:
                 for e in errors:
                     flash(e, "danger")
                 db_session.rollback()
                 return redirect(url_for("importar"))
+
+            db_session.query(CardLogRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
             rows = []
             for r in df.to_dict(orient="records"):
@@ -532,7 +549,7 @@ def importar():
                 })
             if rows:
                 db_session.bulk_insert_mappings(CardLogRow, rows)
-            saved_sets.append("Log Tarjetas")
+            saved_sets.append("Log Tarjetas (reemplazado)")
 
         if has_map:
             df = canonicalize_roommap(read_excel_upload(f_map))
@@ -542,6 +559,8 @@ def importar():
                     flash(e, "danger")
                 db_session.rollback()
                 return redirect(url_for("importar"))
+
+            db_session.query(RoomMapRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
             rows = []
             for r in df.to_dict(orient="records"):
@@ -555,12 +574,12 @@ def importar():
                 })
             if rows:
                 db_session.bulk_insert_mappings(RoomMapRow, rows)
-            saved_sets.append("Mapa")
+            saved_sets.append("Mapa (reemplazado)")
 
         db_session.commit()
         session["last_batch_id"] = batch.id
 
-        flash(f"Importación guardada: {', '.join(saved_sets)}", "success")
+        flash("Importación OK: " + ", ".join(saved_sets), "success")
         return redirect(url_for("preview"))
 
     except Exception as ex:
@@ -588,14 +607,14 @@ def preview():
         "mapa": db_session.query(func.count(RoomMapRow.id)).filter_by(batch_id=batch.id).scalar() or 0,
     }
 
-    def paginate_query(q):
+    def paginate(q):
         total = q.count()
         total_pages = max(1, (total + per_page - 1) // per_page)
         p = min(page, total_pages)
         rows = q.offset((p - 1) * per_page).limit(per_page).all()
         return rows, total, total_pages, p
 
-    data_rows = []
+    rows = []
     total = 0
     total_pages = 1
 
@@ -603,25 +622,25 @@ def preview():
         q = (db_session.query(OntrackingRow)
              .filter_by(batch_id=batch.id)
              .order_by(OntrackingRow.id.desc()))
-        data_rows, total, total_pages, page = paginate_query(q)
+        rows, total, total_pages, page = paginate(q)
 
     elif tab == "log":
         q = (db_session.query(CardLogRow)
              .filter_by(batch_id=batch.id)
              .order_by(CardLogRow.id.desc()))
-        data_rows, total, total_pages, page = paginate_query(q)
+        rows, total, total_pages, page = paginate(q)
 
     elif tab == "mapa":
         q = (db_session.query(RoomMapRow)
              .filter_by(batch_id=batch.id)
              .order_by(RoomMapRow.id.desc()))
-        data_rows, total, total_pages, page = paginate_query(q)
+        rows, total, total_pages, page = paginate(q)
     else:
         tab = "ontracking"
         q = (db_session.query(OntrackingRow)
              .filter_by(batch_id=batch.id)
              .order_by(OntrackingRow.id.desc()))
-        data_rows, total, total_pages, page = paginate_query(q)
+        rows, total, total_pages, page = paginate(q)
 
     return render_template(
         "preview.html",
@@ -629,7 +648,7 @@ def preview():
         created_at=batch.created_at,
         counts=counts,
         tab=tab,
-        rows=data_rows,
+        rows=rows,
         total=total,
         page=page,
         per_page=per_page,
@@ -738,9 +757,7 @@ def admin_delete_log_date():
         return redirect(url_for("preview", tab="log"))
 
     try:
-        logs = (db_session.query(CardLogRow)
-                .filter_by(batch_id=batch.id)
-                .all())
+        logs = db_session.query(CardLogRow).filter_by(batch_id=batch.id).all()
         ids = []
         for r in logs:
             dt = parse_log_datetime(r.fecha)
@@ -757,7 +774,6 @@ def admin_delete_log_date():
              .delete(synchronize_session=False))
         db_session.commit()
         flash(f"Logs eliminados para {target_date.isoformat()} ({n} filas).", "success")
-
     except Exception as ex:
         db_session.rollback()
         flash(f"Error eliminando logs por fecha: {ex}", "danger")
@@ -766,7 +782,8 @@ def admin_delete_log_date():
 
 
 # =========================================================
-# CONCILIACIÓN (match: Ontracking.LUGAR <-> Mapa.HABITACION -> HKEYPLUS <-> Log.HABITACION)
+# CONCILIACIÓN
+# match: Ontracking.LUGAR (S1805) -> Mapa.HABITACION (S1805) -> Mapa.HKEYPLUS (L1805-2) -> Log.HABITACION (L1805-2)
 # =========================================================
 def build_map_on_to_hk(batch_id: int):
     rows = db_session.query(RoomMapRow).filter_by(batch_id=batch_id).all()
@@ -780,16 +797,11 @@ def build_map_on_to_hk(batch_id: int):
 
 
 def logs_grouped_for_date(batch_id: int, target: date):
-    """
-    Agrupa logs por HABITACION (clave log) para la fecha.
-    Devuelve last_event (última apertura del día).
-    """
-    all_logs = (
-        db_session.query(CardLogRow)
-        .filter_by(batch_id=batch_id)
-        .order_by(CardLogRow.id.asc())
-        .all()
-    )
+    """HK -> {count, last:{opener, dt_str}}"""
+    all_logs = (db_session.query(CardLogRow)
+                .filter_by(batch_id=batch_id)
+                .order_by(CardLogRow.id.asc())
+                .all())
 
     by_room = {}
     for r in all_logs:
@@ -797,22 +809,21 @@ def logs_grouped_for_date(batch_id: int, target: date):
         if not dt or dt.date() != target:
             continue
 
-        room = normalize_hk(r.habitacion)
+        hk = normalize_hk(r.habitacion)
         opener = (r.dueno_nombre or r.dueno_codigo or "").strip()
 
         item = {
             "dt": dt,
             "dt_str": dt.strftime("%Y-%m-%d %H:%M:%S"),
             "opener": opener,
-            "nro_tarjeta": (r.nro_tarjeta or "").strip(),
         }
 
-        by_room.setdefault(room, {"count": 0, "last": None})
-        by_room[room]["count"] += 1
+        by_room.setdefault(hk, {"count": 0, "last": None})
+        by_room[hk]["count"] += 1
 
-        last = by_room[room]["last"]
+        last = by_room[hk]["last"]
         if last is None or item["dt"] > last["dt"]:
-            by_room[room]["last"] = item
+            by_room[hk]["last"] = item
 
     return by_room
 
@@ -844,47 +855,50 @@ def conciliacion():
 
     dstr = target_date.isoformat()
 
-    # Ontracking filtrado por DIA
-    q = (
-        db_session.query(OntrackingRow)
-        .filter_by(batch_id=batch.id)
-        .filter(OntrackingRow.dia == dstr)
-        .order_by(OntrackingRow.id.asc())
-    )
+    q = (db_session.query(OntrackingRow)
+         .filter_by(batch_id=batch.id)
+         .filter(OntrackingRow.dia == dstr)
+         .order_by(OntrackingRow.id.asc()))
 
     total = q.count()
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, total_pages)
     on_rows = q.offset((page - 1) * per_page).limit(per_page).all()
 
-    # Mapa: OnKey -> HK
     on_to_hk = build_map_on_to_hk(batch.id)
-
-    # Logs del día: HK -> last_event
-    logs_by_room = logs_grouped_for_date(batch.id, target_date)
+    logs_by_hk = logs_grouped_for_date(batch.id, target_date)
 
     rows_out = []
     for r in on_rows:
-        on_key = normalize_on_key(r.lugar)              # AQUÍ: usamos LUGAR como clave mostrada
-        hk = on_to_hk.get(on_key, "")                   # HK desde mapa (se mantiene)
-        loginfo = logs_by_room.get(hk, {"count": 0, "last": None})
+        on_room = normalize_on_key(r.lugar)  # S1805 (esto es lo que quieres mostrar)
+        hk = on_to_hk.get(on_room, "")       # L1805-2 desde mapa
 
-        last = loginfo.get("last")
-        if last:
-            apertura_text = f"{last['opener']} — {last['dt_str']}"
-        else:
+        if not hk:
+            status = "Sin mapa"
             apertura_text = ""
+            log_count = 0
+        else:
+            info = logs_by_hk.get(hk)
+            if not info:
+                status = "Sin log"
+                apertura_text = ""
+                log_count = 0
+            else:
+                status = "OK"
+                log_count = int(info["count"])
+                last = info["last"]
+                apertura_text = f"{last['opener']} — {last['dt_str']}" if last else ""
 
         rows_out.append({
-            "on_room": on_key,                           # se muestra como S1805
-            "hk": hk,                                    # se muestra clave log (Lxxxx-2)
+            "on_room": on_room,
+            "hk": hk,
             "rut": r.rut or "",
             "nombre": r.nombre or "",
             "empresa": r.empresa or "",
             "inicio": r.inicio or "",
             "termino": r.termino or "",
-            "dia": r.dia or "",
-            "log_count": int(loginfo.get("count", 0)),
+            "status": status,
+            "log_count": log_count,
             "apertura_text": apertura_text,
         })
 
