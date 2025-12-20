@@ -1,31 +1,51 @@
 {% extends "base.html" %}
-{% block title %}Preview · Sistema de gestión{% endblock %}
+{% block title %}Carga · Sistema de gestión{% endblock %}
 
 {% block content %}
 <div class="content-container">
-  <div class="page-title mb-2">Preview</div>
 
-  {% if not has_data %}
-    <div class="text-muted">Aún no hay datos. Importa archivos en “Carga”.</div>
-  {% else %}
-    <div class="text-muted small mb-3">Última carga: {{ created_at }}</div>
-
-    <div class="filter-card">
-      <div class="row g-2">
-        <div class="col-12 col-md-4">
-          <div class="fw-semibold">Ontracking</div>
-          <div class="text-muted">{{ counts.ontracking }} registros</div>
-        </div>
-        <div class="col-12 col-md-4">
-          <div class="fw-semibold">Log Tarjetas</div>
-          <div class="text-muted">{{ counts.log }} registros</div>
-        </div>
-        <div class="col-12 col-md-4">
-          <div class="fw-semibold">Mapa</div>
-          <div class="text-muted">{{ counts.mapa }} registros</div>
-        </div>
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <div class="page-title mb-0">Carga</div>
+      <div class="text-muted small">
+        {% if last_dt %}Última carga: {{ last_dt }}{% else %}Sin cargas aún.{% endif %}
       </div>
     </div>
-  {% endif %}
+  </div>
+
+  <div class="filter-card mb-3">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="fw-semibold">Plantillas</div>
+      <div class="btn-group" role="group">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">Ontracking</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">Log Tarjetas</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">Mapa</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-card">
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold mb-1">Ontracking</label>
+        <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls">
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold mb-1">Log Tarjetas (incluye FECHA)</label>
+        <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <label class="form-label fw-semibold mb-1">Mapa</label>
+        <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls">
+      </div>
+
+      <div class="col-12 d-flex justify-content-end">
+        <button class="btn btn-primary-custom" type="submit">Guardar</button>
+      </div>
+    </form>
+  </div>
+
 </div>
 {% endblock %}
