@@ -58,8 +58,8 @@
           <thead>
             <tr>
               <th>HAB (Ontracking)</th>
-              <th>CAMA (P/V)</th>
-              <th>HAB (Log = HKEYPLUS)</th>
+              <th>HAB (Log)</th>
+              <th>CAMA</th>
               <th>RUT</th>
               <th>NOMBRE</th>
               <th>EMPRESA</th>
@@ -74,16 +74,18 @@
             {% for r in rows %}
             <tr>
               <td>{{ r.on_room }}</td>
-              <td>{{ r.cama_pv }}</td>
               <td>{{ r.hk }}</td>
+              <td>{{ r.cama }}</td>
               <td>{{ r.rut }}</td>
               <td>{{ r.nombre }}</td>
               <td>{{ r.empresa }}</td>
               <td>{{ r.inicio }}</td>
               <td>{{ r.termino }}</td>
               <td>
-                {% if r.log_count > 0 %}
-                  <span class="fw-semibold">{{ r.apertura_html | safe }}</span>
+                {% if r.aperturas and r.aperturas|length > 0 %}
+                  {% for a in r.aperturas %}
+                    <div class="fw-semibold">{{ a }}</div>
+                  {% endfor %}
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}
