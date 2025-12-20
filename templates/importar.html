@@ -7,17 +7,10 @@
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <div>
       <div class="page-title mb-0">Carga</div>
-      <div class="text-muted small">Plantillas y subida.</div>
+      <div class="text-muted small">
+        {% if last_dt %}Última carga: {{ last_dt }}{% else %}Sin cargas aún.{% endif %}
+      </div>
     </div>
-
-    {% if last_token %}
-    <div class="d-flex align-items-center gap-2">
-      <span class="badge text-bg-light border">Token: {{ last_token }}</span>
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('preview', token=last_token) }}">
-        <i class="fa-solid fa-eye me-1"></i> Ver
-      </a>
-    </div>
-    {% endif %}
   </div>
 
   <div class="filter-card mb-3">
@@ -39,18 +32,6 @@
 
   <div class="filter-card">
     <form method="post" enctype="multipart/form-data" class="row g-3">
-
-      <div class="col-12">
-        <button class="btn btn-link p-0 text-decoration-none" type="button"
-                data-bs-toggle="collapse" data-bs-target="#tokenBox" aria-expanded="false">
-          <i class="fa-solid fa-key me-1"></i> Token (opcional)
-        </button>
-        <div class="collapse mt-2" id="tokenBox">
-          <input class="form-control" type="text" name="batch_token"
-                 placeholder="Pegar token para completar/reemplazar lote">
-        </div>
-      </div>
-
       <div class="col-12 col-lg-4">
         <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-bed me-1"></i>Ontracking</label>
         <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls">
@@ -71,7 +52,6 @@
           <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
         </button>
       </div>
-
     </form>
   </div>
 
