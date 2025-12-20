@@ -99,11 +99,11 @@
           {% for r in rows %}
             <tr>
               {% if tab=='ontracking' %}
-                <td>{{ r.id }}</td><td>{{ r.dia }}</td><td>{{ r.lugar }}</td><td>{{ r.cama }}</td><td>{{ r.rut }}</td><td>{{ r.nombre }}</td><td>{{ r.empresa }}</td><td>{{ r.inicio }}</td><td>{{ r.termino }}</td>
+                <td>{{ r.id }}</td><td>{{ r.dia }}</td><td class="mono">{{ r.lugar }}</td><td class="mono">{{ r.cama }}</td><td class="mono">{{ r.rut }}</td><td>{{ r.nombre }}</td><td>{{ r.empresa }}</td><td class="mono">{{ r.inicio }}</td><td class="mono">{{ r.termino }}</td>
               {% elif tab=='log' %}
-                <td>{{ r.id }}</td><td>{{ r.fecha }}</td><td>{{ r.habitacion }}</td><td>{{ r.dueno_nombre or r.dueno_codigo }}</td><td>{{ r.nro_tarjeta }}</td>
+                <td>{{ r.id }}</td><td class="mono">{{ r.fecha }}</td><td class="mono">{{ r.habitacion }}</td><td>{{ r.dueno_nombre or r.dueno_codigo }}</td><td class="mono">{{ r.nro_tarjeta }}</td>
               {% else %}
-                <td>{{ r.id }}</td><td>{{ r.habitacion }}</td><td>{{ r.hkeyplus }}</td><td>{{ r.modulo }}</td><td>{{ r.piso }}</td>
+                <td>{{ r.id }}</td><td class="mono">{{ r.habitacion }}</td><td class="mono">{{ r.hkeyplus }}</td><td class="mono">{{ r.modulo }}</td><td class="mono">{{ r.piso }}</td>
               {% endif %}
 
               <td style="width:1%; white-space:nowrap;">
