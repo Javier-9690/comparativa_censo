@@ -8,7 +8,7 @@
     <div>
       <div class="page-title mb-0">Conciliación</div>
       {% if has_data %}
-      <div class="text-muted small">Última carga: {{ created_at }}</div>
+        <div class="text-muted small">Última carga: {{ created_at }}</div>
       {% endif %}
     </div>
   </div>
@@ -20,7 +20,7 @@
   <div class="filter-card mb-3">
     <form method="get" action="{{ url_for('conciliacion') }}" class="row g-2 align-items-end">
       <div class="col-12 col-md-4">
-        <label class="form-label fw-semibold mb-1">Fecha (se compara contra DIA)</label>
+        <label class="form-label fw-semibold mb-1">Fecha (Ontracking: DIA / Log: FECHA)</label>
         <input class="form-control" type="date" name="date" value="{{ date_str or '' }}">
       </div>
 
@@ -36,22 +36,18 @@
       </div>
 
       <div class="col-12 col-md-4 d-flex justify-content-end">
-        <button class="btn btn-primary-custom w-100" type="submit">
-          Ejecutar
-        </button>
+        <button class="btn btn-primary-custom w-100" type="submit">Ejecutar</button>
       </div>
       <input type="hidden" name="page" value="1">
     </form>
   </div>
 
   {% if not has_run %}
-    <div class="text-muted">Selecciona una fecha.</div>
+    <div class="text-muted">Selecciona una fecha para comparar.</div>
   {% else %}
 
-    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-      <div class="text-muted small">
-        Página {{ page }} / {{ total_pages }} · {{ total }} registros Ontracking (DIA={{ date_str }})
-      </div>
+    <div class="text-muted small mb-2">
+      Página {{ page }} / {{ total_pages }} · {{ total }} registros Ontracking (DIA={{ date_str }})
     </div>
 
     {% if total == 0 %}
@@ -61,14 +57,15 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>HAB (Ontracking)</th>
-              <th>HAB (Log)</th>
+              <th>HAB (Ontracking = LUGAR)</th>
+              <th>HAB (Log = HKEYPLUS)</th>
               <th>RUT</th>
               <th>NOMBRE</th>
               <th>EMPRESA</th>
               <th>INICIO</th>
               <th>TÉRMINO</th>
-              <th>APERTURAS (NOMBRE)</th>
+              <th>APERTURA (última)</th>
+              <th>#</th>
             </tr>
           </thead>
           <tbody>
@@ -83,12 +80,12 @@
               <td>{{ r.termino }}</td>
               <td>
                 {% if r.log_count > 0 %}
-                  <span class="fw-semibold">{{ r.openers_text }}</span>
-                  <div class="text-muted small">{{ r.log_count }} evento(s)</div>
+                  <span class="fw-semibold">{{ r.apertura_text }}</span>
                 {% else %}
                   <span class="text-muted">Sin log</span>
                 {% endif %}
               </td>
+              <td>{{ r.log_count }}</td>
             </tr>
             {% endfor %}
           </tbody>
