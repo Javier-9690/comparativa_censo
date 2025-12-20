@@ -47,7 +47,7 @@
   {% else %}
 
     <div class="text-muted small mb-2">
-      Página {{ page }} / {{ total_pages }} · {{ total }} habitaciones (DIA={{ date_str }})
+      Página {{ page }} / {{ total_pages }} · {{ total }} registros Ontracking (DIA={{ date_str }})
     </div>
 
     {% if total == 0 %}
@@ -62,10 +62,7 @@
               <th>CAMA</th>
               <th>RUT</th>
               <th>NOMBRE</th>
-              <th>EMPRESA</th>
-              <th>INICIO</th>
-              <th>TÉRMINO</th>
-              <th>APERTURA</th>
+              <th>APERTURAS (máx 2)</th>
               <th>ESTADO</th>
               <th>#</th>
             </tr>
@@ -78,11 +75,9 @@
               <td>{{ r.cama }}</td>
               <td>{{ r.rut }}</td>
               <td>{{ r.nombre }}</td>
-              <td>{{ r.empresa }}</td>
-              <td>{{ r.inicio }}</td>
-              <td>{{ r.termino }}</td>
+
               <td>
-                {% if r.aperturas and r.aperturas|length > 0 %}
+                {% if r.aperturas is not none and r.aperturas|length > 0 %}
                   {% for a in r.aperturas %}
                     <div class="fw-semibold">{{ a }}</div>
                   {% endfor %}
@@ -90,8 +85,16 @@
                   <span class="text-muted">—</span>
                 {% endif %}
               </td>
+
               <td>{{ r.status }}</td>
-              <td>{{ r.log_count }}</td>
+
+              <td>
+                {% if r.log_count is none %}
+                  <span class="text-muted">—</span>
+                {% else %}
+                  {{ r.log_count }}
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
