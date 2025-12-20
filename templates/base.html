@@ -170,10 +170,9 @@
           </a>
         </li>
 
-        {% set t = session.get('last_token') %}
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'preview' %}active{% endif %} {% if not t %}disabled{% endif %}"
-             {% if t %}href="{{ url_for('preview', token=t) }}"{% endif %}>
+          <a class="nav-link {% if request.endpoint == 'preview' %}active{% endif %}"
+             href="{{ url_for('preview') }}">
             <i class="fa-solid fa-table"></i> Preview
           </a>
         </li>
