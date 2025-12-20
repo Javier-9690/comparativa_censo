@@ -47,7 +47,7 @@
   {% else %}
 
     <div class="text-muted small mb-2">
-      Página {{ page }} / {{ total_pages }} · {{ total }} registros Ontracking (DIA={{ date_str }})
+      Página {{ page }} / {{ total_pages }} · {{ total }} habitaciones (DIA={{ date_str }})
     </div>
 
     {% if total == 0 %}
@@ -57,14 +57,15 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>HAB (Ontracking = LUGAR)</th>
+              <th>HAB (Ontracking)</th>
+              <th>CAMA (P/V)</th>
               <th>HAB (Log = HKEYPLUS)</th>
               <th>RUT</th>
               <th>NOMBRE</th>
               <th>EMPRESA</th>
               <th>INICIO</th>
               <th>TÉRMINO</th>
-              <th>APERTURA (última)</th>
+              <th>APERTURA</th>
               <th>ESTADO</th>
               <th>#</th>
             </tr>
@@ -73,6 +74,7 @@
             {% for r in rows %}
             <tr>
               <td>{{ r.on_room }}</td>
+              <td>{{ r.cama_pv }}</td>
               <td>{{ r.hk }}</td>
               <td>{{ r.rut }}</td>
               <td>{{ r.nombre }}</td>
@@ -81,7 +83,7 @@
               <td>{{ r.termino }}</td>
               <td>
                 {% if r.log_count > 0 %}
-                  <span class="fw-semibold">{{ r.apertura_text }}</span>
+                  <span class="fw-semibold">{{ r.apertura_html | safe }}</span>
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}
