@@ -61,10 +61,15 @@ Base = declarative_base()
 Base.query = db_session.query_property()
 
 
+# =========================================================
+# MODELOS
+# =========================================================
 class UploadBatch(Base):
     __tablename__ = "upload_batches"
     id = Column(Integer, primary_key=True)
-    token = Column(String(64), unique=True, nullable=False, index=True)
+    # Mantengo token SOLO para compatibilidad con DB existente (NOT NULL).
+    # No se muestra ni se usa en UI/URLs.
+    token = Column(String(64), unique=True, nullable=False, index=True, default=lambda: uuid4().hex)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     ontracking_rows = relationship("OntrackingRow", back_populates="batch", cascade="all, delete-orphan")
@@ -117,10 +122,10 @@ class RoomMapRow(Base):
     id = Column(Integer, primary_key=True)
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
-    habitacion = Column(String(80), index=True)  # nomenclatura ontracking
+    habitacion = Column(String(80), index=True)  # nomenclatura Ontracking (ej: S1801)
     modulo = Column(String(80), index=True)
     piso = Column(String(20))
-    hkeyplus = Column(String(80), index=True)    # nomenclatura log (ej: L1801-2)
+    hkeyplus = Column(String(80), index=True)    # nomenclatura Log (ej: L1801-2)
 
     raw = Column(JSONB, nullable=False)
     batch = relationship("UploadBatch", back_populates="roommap_rows")
@@ -137,9 +142,9 @@ def shutdown_session(exception=None):
 
 init_db()
 
-# ----------------------------
-# Helpers
-# ----------------------------
+# =========================================================
+# HELPERS
+# =========================================================
 def _normalize_col_name(name: str) -> str:
     name = str(name).strip()
     name = unicodedata.normalize("NFKD", name)
@@ -208,10 +213,6 @@ def validate_required(df: pd.DataFrame, required: set, label: str) -> list[str]:
 
 
 def parse_log_datetime(value: str):
-    """
-    Convierte strings del log a datetime.
-    Soporta formatos con "a.m./p.m." y dayfirst.
-    """
     if value is None:
         return None
     s = str(value).strip()
@@ -235,9 +236,20 @@ def clamp_int(x, default, lo, hi):
     return max(lo, min(hi, v))
 
 
-# ----------------------------
-# Canonicalización
-# ----------------------------
+def get_active_batch():
+    """Lote activo = el último importado en sesión; si no, el más reciente en DB."""
+    bid = session.get("last_batch_id")
+    if bid:
+        b = db_session.query(UploadBatch).filter_by(id=bid).first()
+        if b:
+            return b
+
+    return db_session.query(UploadBatch).order_by(UploadBatch.created_at.desc()).first()
+
+
+# =========================================================
+# CANONICALIZACIÓN
+# =========================================================
 ONTRACKING_COLMAP = {
     "MODULO": ["MODULO", "MODU", "MOD"],
     "LUGAR": ["LUGAR", "LUGA", "LUG"],
@@ -307,9 +319,9 @@ def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ----------------------------
-# Plantillas Excel
-# ----------------------------
+# =========================================================
+# PLANTILLAS
+# =========================================================
 TEMPLATE_COLUMNS = {
     "ontracking": [
         "MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA",
@@ -358,17 +370,17 @@ def build_template_xlsx(template_key: str) -> BytesIO:
     return bio
 
 
-# ----------------------------
-# Context
-# ----------------------------
+# =========================================================
+# CONTEXT
+# =========================================================
 @app.context_processor
 def inject_now():
     return {"now": datetime.now()}
 
 
-# ----------------------------
-# Routes
-# ----------------------------
+# =========================================================
+# ROUTES
+# =========================================================
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
@@ -376,11 +388,6 @@ def healthz():
 
 @app.get("/")
 def index():
-    return redirect(url_for("importar"))
-
-
-@app.get("/plantillas")
-def plantillas_redirect():
     return redirect(url_for("importar"))
 
 
@@ -400,9 +407,10 @@ def descargar_plantilla(template_key: str):
 @app.route("/importar", methods=["GET", "POST"])
 def importar():
     if request.method == "GET":
-        return render_template("importar.html", last_token=session.get("last_token"))
-
-    token_in = (request.form.get("batch_token") or "").strip()
+        # UI minimalista, sin tokens
+        last_batch = get_active_batch()
+        last_dt = last_batch.created_at if last_batch else None
+        return render_template("importar.html", last_dt=last_dt)
 
     f_ocup = request.files.get("excel_ocupacion")
     f_log = request.files.get("excel_log_tarjetas")
@@ -417,22 +425,13 @@ def importar():
         return redirect(url_for("importar"))
 
     try:
-        # Batch
-        if token_in:
-            batch = db_session.query(UploadBatch).filter_by(token=token_in).first()
-            if not batch:
-                flash("Token no válido.", "danger")
-                return redirect(url_for("importar"))
-            token = batch.token
-        else:
-            token = uuid4().hex
-            batch = UploadBatch(token=token)
-            db_session.add(batch)
-            db_session.flush()
+        # Siempre creamos un nuevo lote (sin exponer tokens).
+        batch = UploadBatch(token=uuid4().hex)
+        db_session.add(batch)
+        db_session.flush()
 
         saved_sets = []
 
-        # Ontracking
         if has_ocup:
             df = canonicalize_ontracking(read_excel_upload(f_ocup))
             errors = validate_required(df, {"MODULO", "LUGAR", "HABITACION", "RUT", "NOMBRE"}, "Ontracking")
@@ -441,8 +440,6 @@ def importar():
                     flash(e, "danger")
                 db_session.rollback()
                 return redirect(url_for("importar"))
-
-            db_session.query(OntrackingRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
             rows = []
             for r in df.to_dict(orient="records"):
@@ -466,7 +463,6 @@ def importar():
                 db_session.bulk_insert_mappings(OntrackingRow, rows)
             saved_sets.append("Ontracking")
 
-        # Log Tarjetas
         if has_log:
             df = canonicalize_cardlog(read_excel_upload(f_log))
             errors = validate_required(df, {"NRO_TARJETA", "NRO_HABITACION", "HABITACION", "FECHA"}, "Log Tarjetas")
@@ -475,8 +471,6 @@ def importar():
                     flash(e, "danger")
                 db_session.rollback()
                 return redirect(url_for("importar"))
-
-            db_session.query(CardLogRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
             rows = []
             for r in df.to_dict(orient="records"):
@@ -496,7 +490,6 @@ def importar():
                 db_session.bulk_insert_mappings(CardLogRow, rows)
             saved_sets.append("Log Tarjetas")
 
-        # Mapa
         if has_map:
             df = canonicalize_roommap(read_excel_upload(f_map))
             errors = validate_required(df, {"HABITACION", "MODULO", "PISO", "HKEYPLUS"}, "Mapa")
@@ -505,8 +498,6 @@ def importar():
                     flash(e, "danger")
                 db_session.rollback()
                 return redirect(url_for("importar"))
-
-            db_session.query(RoomMapRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
             rows = []
             for r in df.to_dict(orient="records"):
@@ -523,9 +514,10 @@ def importar():
             saved_sets.append("Mapa")
 
         db_session.commit()
-        session["last_token"] = token
-        flash(f"Guardado: {', '.join(saved_sets)} · Token: {token}", "success")
-        return redirect(url_for("preview", token=token))
+        session["last_batch_id"] = batch.id
+
+        flash(f"Importación guardada: {', '.join(saved_sets)}", "success")
+        return redirect(url_for("preview"))
 
     except Exception as ex:
         db_session.rollback()
@@ -534,14 +526,16 @@ def importar():
 
 
 # ----------------------------
-# PREVIEW con paginación + tabs
+# PREVIEW (sin token)
 # ----------------------------
-@app.get("/preview/<token>")
-def preview(token: str):
-    batch = db_session.query(UploadBatch).filter_by(token=token).first()
+@app.get("/preview")
+def preview():
+    batch = get_active_batch()
     if not batch:
-        flash("No se encontró ese token.", "warning")
-        return redirect(url_for("importar"))
+        return render_template(
+            "preview.html",
+            has_data=False
+        )
 
     tab = (request.args.get("tab") or "ontracking").strip().lower()
     if tab not in ("ontracking", "log", "mapa"):
@@ -556,13 +550,6 @@ def preview(token: str):
         "mapa": db_session.query(func.count(RoomMapRow.id)).filter_by(batch_id=batch.id).scalar() or 0,
     }
 
-    def page_query(model):
-        q = db_session.query(model).filter_by(batch_id=batch.id).order_by(model.id.asc())
-        total = counts[tab]
-        offset = (page - 1) * per_page
-        rows = q.offset(offset).limit(per_page).all()
-        return total, rows
-
     columns_map = {
         "ontracking": ["MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA", "INICIO", "TERMINO",
                        "DIA", "CAMAS_OCUPADAS", "RUT", "NOMBRE"],
@@ -571,22 +558,27 @@ def preview(token: str):
         "mapa": ["HABITACION", "MODULO", "PISO", "HKEYPLUS"],
     }
 
-    model_map = {
-        "ontracking": OntrackingRow,
-        "log": CardLogRow,
-        "mapa": RoomMapRow,
-    }
+    model_map = {"ontracking": OntrackingRow, "log": CardLogRow, "mapa": RoomMapRow}
+    model = model_map[tab]
 
-    total, rows = page_query(model_map[tab])
+    total = counts[tab]
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, total_pages)
+    offset = (page - 1) * per_page
 
-    # Convertir a lista raw para template
+    rows = (
+        db_session.query(model)
+        .filter_by(batch_id=batch.id)
+        .order_by(model.id.asc())
+        .offset(offset)
+        .limit(per_page)
+        .all()
+    )
     raw_rows = [r.raw for r in rows]
 
     return render_template(
         "preview.html",
-        token=token,
+        has_data=True,
         created_at=batch.created_at,
         tab=tab,
         counts=counts,
@@ -599,9 +591,9 @@ def preview(token: str):
     )
 
 
-@app.get("/descargar/<token>/<dataset>.csv")
-def descargar_csv(token: str, dataset: str):
-    batch = db_session.query(UploadBatch).filter_by(token=token).first()
+@app.get("/descargar/<dataset>.csv")
+def descargar_csv(dataset: str):
+    batch = get_active_batch()
     if not batch:
         abort(404)
 
@@ -613,10 +605,11 @@ def descargar_csv(token: str, dataset: str):
     if dataset not in model_map:
         abort(404)
 
+    model = model_map[dataset]
     rows = (
-        db_session.query(model_map[dataset])
+        db_session.query(model)
         .filter_by(batch_id=batch.id)
-        .order_by(model_map[dataset].id.asc())
+        .order_by(model.id.asc())
         .all()
     )
     if not rows:
@@ -630,242 +623,154 @@ def descargar_csv(token: str, dataset: str):
     return send_file(
         bio,
         as_attachment=True,
-        download_name=f"{dataset}_{token[:8]}.csv",
+        download_name=f"{dataset}.csv",
         mimetype="text/csv; charset=utf-8"
     )
 
 
 # ----------------------------
-# CONCILIACIÓN (por fecha usando mapa)
+# CONCILIACIÓN por habitación + fecha (lado a lado)
 # ----------------------------
-def compute_conciliacion(batch_id: int, target: date):
-    date_str = target.isoformat()
+def resolve_room_mapping(batch_id: int, room_input: str):
+    """
+    room_input puede ser:
+      - HABITACION de Ontracking (RoomMapRow.habitacion)
+      - HABITACION del Log (RoomMapRow.hkeyplus)
 
-    # 1) Mapa
-    map_rows = (
+    Retorna:
+      on_room, log_room, modulo, piso, map_found(bool)
+    """
+    room_input = (room_input or "").strip()
+    if not room_input:
+        return "", "", "", "", False
+
+    m = (
         db_session.query(RoomMapRow)
         .filter_by(batch_id=batch_id)
-        .order_by(RoomMapRow.id.asc())
-        .all()
+        .filter((RoomMapRow.habitacion == room_input) | (RoomMapRow.hkeyplus == room_input))
+        .first()
     )
-    map_by_on = {}      # ontracking HABITACION -> dict
-    map_by_hkey = {}    # hkeyplus -> ontracking HABITACION (para detectar logs sin mapa)
-    for m in map_rows:
-        on_h = (m.habitacion or "").strip()
-        hk = (m.hkeyplus or "").strip()
-        map_by_on[on_h] = {"on": on_h, "hkey": hk, "modulo": m.modulo or "", "piso": m.piso or ""}
-        if hk:
-            map_by_hkey[hk] = on_h
 
-    # 2) Ontracking activos (fecha dentro de inicio/termino)
-    # Como INICIO/TERMINO son "YYYY-MM-DD", comparación lexicográfica funciona.
-    on_rows = (
+    if m:
+        return (m.habitacion or "").strip(), (m.hkeyplus or "").strip(), (m.modulo or "").strip(), (m.piso or "").strip(), True
+
+    # Sin mapa: intentamos usar lo escrito como ambos
+    return room_input, room_input, "", "", False
+
+
+def get_ontracking_for_room_date(batch_id: int, on_room: str, target: date):
+    """Ocupación activa en esa fecha: INICIO <= fecha <= TERMINO"""
+    if not on_room:
+        return []
+
+    date_str = target.isoformat()
+    rows = (
         db_session.query(OntrackingRow)
         .filter_by(batch_id=batch_id)
+        .filter(OntrackingRow.habitacion == on_room)
         .filter(OntrackingRow.inicio != "")
         .filter(OntrackingRow.termino != "")
         .filter(OntrackingRow.inicio <= date_str)
         .filter(OntrackingRow.termino >= date_str)
+        .order_by(OntrackingRow.id.asc())
         .all()
     )
-    on_active = {}  # habitacion_on -> list[dict]
-    for r in on_rows:
-        h = (r.habitacion or "").strip()
-        on_active.setdefault(h, []).append({
-            "rut": r.rut or "",
-            "nombre": r.nombre or "",
-            "empresa": r.empresa or "",
-            "cama": r.cama or "",
-            "inicio": r.inicio or "",
-            "termino": r.termino or "",
-        })
+    return rows
 
-    # 3) Logs del día
-    log_rows = (
+
+def get_logs_for_room_date(batch_id: int, log_room: str, target: date):
+    """Eventos del log en esa fecha (por parsing de FECHA)."""
+    if not log_room:
+        return []
+
+    candidates = (
         db_session.query(CardLogRow)
         .filter_by(batch_id=batch_id)
+        .filter(CardLogRow.habitacion == log_room)
         .order_by(CardLogRow.id.asc())
         .all()
     )
-    log_by_hkey = {}  # log HABITACION (hkeyplus) -> list[dict]
-    for r in log_rows:
+
+    out = []
+    for r in candidates:
         dt = parse_log_datetime(r.fecha)
-        if not dt or dt.date() != target:
-            continue
-        hk = (r.habitacion or "").strip()
-        log_by_hkey.setdefault(hk, []).append({
-            "fecha": dt,
-            "nro_tarjeta": r.nro_tarjeta or "",
-            "dueno": (r.dueno_nombre or r.dueno_codigo or "").strip(),
-            "metodo": (r.metodo_apertura_puerta or "").strip(),
-        })
-
-    # 4) Resultados
-    results = []
-
-    def summarize_people(lst):
-        if not lst:
-            return ""
-        names = [x.get("nombre", "").strip() for x in lst if x.get("nombre")]
-        names = [n for n in names if n]
-        if not names:
-            return ""
-        if len(names) <= 2:
-            return " · ".join(names)
-        return f"{names[0]} · {names[1]} · +{len(names)-2}"
-
-    # 4a) Habitaciones del mapa (principal)
-    for on_h, info in map_by_on.items():
-        hk = info["hkey"]
-        people = on_active.get(on_h, [])
-        logs = log_by_hkey.get(hk, [])
-
-        ocupada = len(people) > 0
-        log_n = len(logs)
-        last_dt = max((x["fecha"] for x in logs), default=None)
-
-        if ocupada and log_n > 0:
-            status = "OK"
-        elif ocupada and log_n == 0:
-            status = "OCUPADA_SIN_LOG"
-        elif (not ocupada) and log_n > 0:
-            status = "LOG_SIN_OCUPACION"
-        else:
-            status = "SIN_MOVIMIENTOS"
-
-        results.append({
-            "habitacion_ontracking": on_h,
-            "habitacion_log": hk,
-            "modulo": info["modulo"],
-            "piso": info["piso"],
-            "ocupada": "SI" if ocupada else "NO",
-            "ocupantes": summarize_people(people),
-            "log_eventos": log_n,
-            "log_ultimo": last_dt.strftime("%H:%M:%S") if last_dt else "",
-            "status": status,
-        })
-
-    # 4b) Ontracking sin mapa
-    for on_h, people in on_active.items():
-        if on_h in map_by_on:
-            continue
-        results.append({
-            "habitacion_ontracking": on_h,
-            "habitacion_log": "",
-            "modulo": "",
-            "piso": "",
-            "ocupada": "SI",
-            "ocupantes": summarize_people(people),
-            "log_eventos": 0,
-            "log_ultimo": "",
-            "status": "SIN_MAPA",
-        })
-
-    # 4c) Log sin mapa
-    for hk, logs in log_by_hkey.items():
-        if hk in map_by_hkey:
-            continue
-        last_dt = max((x["fecha"] for x in logs), default=None)
-        results.append({
-            "habitacion_ontracking": "",
-            "habitacion_log": hk,
-            "modulo": "",
-            "piso": "",
-            "ocupada": "NO",
-            "ocupantes": "",
-            "log_eventos": len(logs),
-            "log_ultimo": last_dt.strftime("%H:%M:%S") if last_dt else "",
-            "status": "SIN_MAPA",
-        })
-
-    # Orden: primero por ontracking, luego por log
-    def key(r):
-        return (r["habitacion_ontracking"] or "~~~~", r["habitacion_log"] or "~~~~")
-    results.sort(key=key)
-
-    # Conteos
-    counts = {}
-    for r in results:
-        counts[r["status"]] = counts.get(r["status"], 0) + 1
-
-    return results, counts
+        if dt and dt.date() == target:
+            out.append((dt, r))
+    out.sort(key=lambda x: x[0])
+    return out
 
 
 @app.get("/conciliacion")
 def conciliacion():
-    token = (request.args.get("token") or session.get("last_token") or "").strip()
-    date_str = (request.args.get("date") or "").strip()  # YYYY-MM-DD
-    page = clamp_int(request.args.get("page"), default=1, lo=1, hi=10_000)
-    per_page = clamp_int(request.args.get("per_page"), default=25, lo=10, hi=200)
-
-    if not token:
-        return render_template("conciliacion.html", token="", date_str="", has_run=False)
-
-    batch = db_session.query(UploadBatch).filter_by(token=token).first()
+    batch = get_active_batch()
     if not batch:
-        flash("Token no válido.", "danger")
-        return redirect(url_for("importar"))
+        return render_template("conciliacion.html", has_data=False)
 
-    if not date_str:
-        return render_template("conciliacion.html", token=token, date_str="", has_run=False)
+    room = (request.args.get("habitacion") or "").strip()
+    date_str = (request.args.get("date") or "").strip()
+
+    # UI minimal: si no hay búsqueda, solo muestra form
+    if not room or not date_str:
+        return render_template(
+            "conciliacion.html",
+            has_data=True,
+            created_at=batch.created_at,
+            has_run=False,
+            habitacion=room,
+            date_str=date_str
+        )
 
     try:
         target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except Exception:
         flash("Fecha inválida.", "danger")
-        return redirect(url_for("conciliacion", token=token))
+        return redirect(url_for("conciliacion"))
 
-    results, status_counts = compute_conciliacion(batch.id, target_date)
+    on_room, log_room, modulo, piso, map_found = resolve_room_mapping(batch.id, room)
 
-    total = len(results)
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = min(page, total_pages)
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_rows = results[start:end]
+    on_rows = get_ontracking_for_room_date(batch.id, on_room, target_date)
+    log_pairs = get_logs_for_room_date(batch.id, log_room, target_date)
+
+    # Preparar filas para template
+    on_table = []
+    for r in on_rows:
+        on_table.append({
+            "MODULO": r.modulo or "",
+            "LUGAR": r.lugar or "",
+            "HABITACION": r.habitacion or "",
+            "EMPRESA": r.empresa or "",
+            "ID": r.ontracking_id or "",
+            "CAMA": r.cama or "",
+            "INICIO": r.inicio or "",
+            "TERMINO": r.termino or "",
+            "RUT": r.rut or "",
+            "NOMBRE": r.nombre or "",
+        })
+
+    log_table = []
+    for dt, r in log_pairs:
+        log_table.append({
+            "HORA": dt.strftime("%H:%M:%S"),
+            "NRO_TARJETA": r.nro_tarjeta or "",
+            "DUEÑO": (r.dueno_nombre or r.dueno_codigo or "").strip(),
+            "METODO": (r.metodo_apertura_puerta or "").strip(),
+            "HABITACION": r.habitacion or "",
+        })
 
     return render_template(
         "conciliacion.html",
-        token=token,
-        date_str=date_str,
+        has_data=True,
+        created_at=batch.created_at,
         has_run=True,
-        rows=page_rows,
-        status_counts=status_counts,
-        page=page,
-        per_page=per_page,
-        total=total,
-        total_pages=total_pages,
-    )
-
-
-@app.get("/conciliacion/export.csv")
-def conciliacion_export():
-    token = (request.args.get("token") or "").strip()
-    date_str = (request.args.get("date") or "").strip()
-    if not token or not date_str:
-        abort(404)
-
-    batch = db_session.query(UploadBatch).filter_by(token=token).first()
-    if not batch:
-        abort(404)
-
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    except Exception:
-        abort(404)
-
-    results, _ = compute_conciliacion(batch.id, target_date)
-    df = pd.DataFrame(results)
-
-    bio = BytesIO()
-    df.to_csv(bio, index=False, encoding="utf-8-sig")
-    bio.seek(0)
-
-    return send_file(
-        bio,
-        as_attachment=True,
-        download_name=f"conciliacion_{token[:8]}_{date_str}.csv",
-        mimetype="text/csv; charset=utf-8"
+        habitacion=room,
+        date_str=date_str,
+        map_found=map_found,
+        on_room=on_room,
+        log_room=log_room,
+        modulo=modulo,
+        piso=piso,
+        on_rows=on_table,
+        log_rows=log_table
     )
 
 
