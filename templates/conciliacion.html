@@ -19,131 +19,197 @@
 
   <div class="filter-card mb-3">
     <form method="get" action="{{ url_for('conciliacion') }}" class="row g-2 align-items-end">
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-4">
         <label class="form-label fw-semibold mb-1">Fecha</label>
         <input class="form-control" type="date" name="date" value="{{ date_str or '' }}">
       </div>
 
-      <div class="col-12 col-md-7">
-        <label class="form-label fw-semibold mb-1">Habitación</label>
-        <input class="form-control" type="text" name="habitacion" value="{{ habitacion or '' }}"
-               placeholder="Ej: S1801 (Ontracking) o L1801-2 (Log)">
+      <div class="col-12 col-md-4">
+        <label class="form-label fw-semibold mb-1">Filas por página</label>
+        <select class="form-select" name="per_page">
+          {% set pp = per_page or 25 %}
+          <option value="25"  {% if pp == 25 %}selected{% endif %}>25</option>
+          <option value="50"  {% if pp == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if pp == 100 %}selected{% endif %}>100</option>
+          <option value="200" {% if pp == 200 %}selected{% endif %}>200</option>
+        </select>
       </div>
 
-      <div class="col-12 col-md-2 d-flex justify-content-end">
+      <div class="col-12 col-md-4 d-flex justify-content-end">
         <button class="btn btn-primary-custom w-100" type="submit">
-          <i class="fa-solid fa-play me-1"></i> Buscar
+          <i class="fa-solid fa-play me-1"></i> Ejecutar
         </button>
       </div>
     </form>
   </div>
 
   {% if not has_run %}
-    <div class="text-muted">Selecciona fecha y habitación.</div>
+    <div class="text-muted">Selecciona una fecha para comparar Ontracking vs Log Tarjetas.</div>
   {% else %}
 
-    <div class="mb-3">
-      <span class="badge text-bg-light border">
-        Ontracking: {{ on_room or '-' }}
-      </span>
-      <span class="badge text-bg-light border">
-        Log: {{ log_room or '-' }}
-      </span>
-      {% if modulo %}
-      <span class="badge text-bg-light border">Módulo: {{ modulo }}</span>
-      {% endif %}
-      {% if piso %}
-      <span class="badge text-bg-light border">Piso: {{ piso }}</span>
-      {% endif %}
-      {% if map_found %}
-      <span class="badge text-bg-success">Mapa OK</span>
-      {% else %}
-      <span class="badge text-bg-secondary">Sin mapa</span>
-      {% endif %}
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+      <div class="text-muted small">
+        Página {{ page }} / {{ total_pages }} · {{ total }} habitaciones
+      </div>
+      <div class="d-flex flex-wrap gap-1">
+        {% for k, v in status_counts.items() %}
+          <span class="badge text-bg-light border">{{ k }}: {{ v }}</span>
+        {% endfor %}
+      </div>
     </div>
 
-    <div class="row g-3">
-      <!-- ONTRACKING -->
-      <div class="col-12 col-lg-6">
-        <div class="p-3 bg-white border rounded-3 h-100">
-          <div class="fw-semibold mb-2"><i class="fa-solid fa-bed me-2"></i>Ontracking (activa en la fecha)</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>MÓDULO</th>
+            <th>PISO</th>
+            <th>HAB (Ontracking)</th>
+            <th>HAB (Log)</th>
+            <th>ONTRACKING</th>
+            <th>LOG</th>
+            <th>STATUS</th>
+            <th>DETALLE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.modulo }}</td>
+            <td>{{ r.piso }}</td>
+            <td>{{ r.on_room }}</td>
+            <td>{{ r.hk }}</td>
 
-          {% if on_rows and on_rows|length > 0 %}
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>MÓDULO</th>
-                  <th>LUGAR</th>
-                  <th>HABITACIÓN</th>
-                  <th>EMPRESA</th>
-                  <th>CAMA</th>
-                  <th>RUT</th>
-                  <th>NOMBRE</th>
-                  <th>INICIO</th>
-                  <th>TÉRMINO</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for r in on_rows %}
-                <tr>
-                  <td>{{ r.MODULO }}</td>
-                  <td>{{ r.LUGAR }}</td>
-                  <td>{{ r.HABITACION }}</td>
-                  <td>{{ r.EMPRESA }}</td>
-                  <td>{{ r.CAMA }}</td>
-                  <td>{{ r.RUT }}</td>
-                  <td>{{ r.NOMBRE }}</td>
-                  <td>{{ r.INICIO }}</td>
-                  <td>{{ r.TERMINO }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}
-            <div class="text-muted">Sin ocupación activa para esa fecha.</div>
-          {% endif %}
-        </div>
-      </div>
+            <td>
+              {{ r.on_count }} registro(s)
+            </td>
 
-      <!-- LOG TARJETAS -->
-      <div class="col-12 col-lg-6">
-        <div class="p-3 bg-white border rounded-3 h-100">
-          <div class="fw-semibold mb-2"><i class="fa-solid fa-id-card me-2"></i>Log Tarjetas (eventos del día)</div>
+            <td>
+              {{ r.log_count }} evento(s)
+              {% if r.last_log_time %}<div class="text-muted small">Último: {{ r.last_log_time }}</div>{% endif %}
+              {% if r.owners_summary %}<div class="text-muted small">{{ r.owners_summary }}</div>{% endif %}
+            </td>
 
-          {% if log_rows and log_rows|length > 0 %}
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>HORA</th>
-                  <th>HABITACIÓN</th>
-                  <th>NRO TARJETA</th>
-                  <th>DUEÑO</th>
-                  <th>MÉTODO</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for r in log_rows %}
-                <tr>
-                  <td>{{ r.HORA }}</td>
-                  <td>{{ r.HABITACION }}</td>
-                  <td>{{ r.NRO_TARJETA }}</td>
-                  <td>{{ r["DUEÑO"] }}</td>
-                  <td>{{ r.METODO }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}
-            <div class="text-muted">Sin eventos en el log para esa fecha.</div>
-          {% endif %}
-        </div>
-      </div>
+            <td>
+              {% if r.status == 'OK' %}
+                <span class="badge text-bg-success">OK</span>
+              {% elif r.status == 'OCUPADA_SIN_LOG' %}
+                <span class="badge text-bg-warning">OCUPADA_SIN_LOG</span>
+              {% elif r.status == 'LOG_SIN_OCUPACION' %}
+                <span class="badge text-bg-danger">LOG_SIN_OCUPACION</span>
+              {% elif r.status == 'SIN_MAPA' %}
+                <span class="badge text-bg-secondary">SIN_MAPA</span>
+              {% else %}
+                <span class="badge text-bg-light border">SIN_MOVIMIENTOS</span>
+              {% endif %}
+            </td>
 
+            <td>
+              <button class="btn btn-outline-secondary btn-sm" type="button"
+                      data-bs-toggle="collapse" data-bs-target="#d{{ r.row_id }}">
+                Ver
+              </button>
+            </td>
+          </tr>
+
+          <tr class="collapse" id="d{{ r.row_id }}">
+            <td colspan="8" style="background:#fafafa;">
+              <div class="p-2">
+
+                <div class="row g-3">
+                  <!-- Ontracking detalle -->
+                  <div class="col-12 col-lg-6">
+                    <div class="fw-semibold mb-1">Ontracking (activa en la fecha)</div>
+                    {% if r.on_rows and r.on_rows|length > 0 %}
+                      <div class="table-responsive">
+                        <table class="data-table">
+                          <thead>
+                            <tr>
+                              <th>MÓDULO</th>
+                              <th>LUGAR</th>
+                              <th>EMPRESA</th>
+                              <th>CAMA</th>
+                              <th>RUT</th>
+                              <th>NOMBRE</th>
+                              <th>INICIO</th>
+                              <th>TÉRMINO</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for o in r.on_rows %}
+                            <tr>
+                              <td>{{ o.MODULO }}</td>
+                              <td>{{ o.LUGAR }}</td>
+                              <td>{{ o.EMPRESA }}</td>
+                              <td>{{ o.CAMA }}</td>
+                              <td>{{ o.RUT }}</td>
+                              <td>{{ o.NOMBRE }}</td>
+                              <td>{{ o.INICIO }}</td>
+                              <td>{{ o.TERMINO }}</td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    {% else %}
+                      <div class="text-muted small">Sin registros activos en Ontracking.</div>
+                    {% endif %}
+                  </div>
+
+                  <!-- Log detalle -->
+                  <div class="col-12 col-lg-6">
+                    <div class="fw-semibold mb-1">Log Tarjetas (eventos del día)</div>
+                    {% if r.log_rows and r.log_rows|length > 0 %}
+                      <div class="table-responsive">
+                        <table class="data-table">
+                          <thead>
+                            <tr>
+                              <th>HORA</th>
+                              <th>NRO TARJETA</th>
+                              <th>DUEÑO</th>
+                              <th>MÉTODO</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for l in r.log_rows %}
+                            <tr>
+                              <td>{{ l.HORA }}</td>
+                              <td>{{ l.NRO_TARJETA }}</td>
+                              <td>{{ l["DUEÑO"] }}</td>
+                              <td>{{ l.METODO }}</td>
+                            </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    {% else %}
+                      <div class="text-muted small">Sin eventos en Log Tarjetas.</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+              </div>
+            </td>
+          </tr>
+
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', date=date_str, page=page-1, per_page=per_page) }}">Anterior</a>
+        </li>
+        <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', date=date_str, page=page+1, per_page=per_page) }}">Siguiente</a>
+        </li>
+      </ul>
+    </nav>
 
   {% endif %}
   {% endif %}
