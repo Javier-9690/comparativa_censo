@@ -8,7 +8,7 @@
     <div>
       <div class="page-title mb-0">Conciliación</div>
       {% if has_data %}
-        <div class="text-muted small">Última carga: {{ created_at }}</div>
+        <div class="text-muted small">Lote activo: {{ created_at }}</div>
       {% endif %}
     </div>
   </div>
@@ -65,6 +65,7 @@
               <th>INICIO</th>
               <th>TÉRMINO</th>
               <th>APERTURA (última)</th>
+              <th>ESTADO</th>
               <th>#</th>
             </tr>
           </thead>
@@ -82,9 +83,10 @@
                 {% if r.log_count > 0 %}
                   <span class="fw-semibold">{{ r.apertura_text }}</span>
                 {% else %}
-                  <span class="text-muted">Sin log</span>
+                  <span class="text-muted">—</span>
                 {% endif %}
               </td>
+              <td>{{ r.status }}</td>
               <td>{{ r.log_count }}</td>
             </tr>
             {% endfor %}
