@@ -103,11 +103,11 @@ class CardLogRow(Base):
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
     nro_tarjeta = Column(String(50), index=True)
-    nro_habitacion = Column(String(80), index=True)
-    habitacion = Column(String(80), index=True)  # L1805-2 (archivo log)
+    nro_habitacion = Column(String(80), index=True)  # 5400-M34 (si viene)
+    habitacion = Column(String(80), index=True)      # DEBE QUEDAR L####-#
     metodo_apertura_puerta = Column(Text)
     tipo_tarjeta = Column(String(80))
-    fecha = Column(Text)                         # string original con hora
+    fecha = Column(Text)                             # string original con hora
     dueno_codigo = Column(String(80))
     dueno_nombre = Column(Text)
 
@@ -120,10 +120,10 @@ class RoomMapRow(Base):
     id = Column(Integer, primary_key=True)
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
-    habitacion = Column(String(80), index=True)  # clave ontracking (S1805)
+    habitacion = Column(String(80), index=True)  # S1805
     modulo = Column(String(80), index=True)
     piso = Column(String(20))
-    hkeyplus = Column(String(80), index=True)    # clave log (L1805-2)
+    hkeyplus = Column(String(80), index=True)    # L1805-2
 
     raw = Column(JSONB, nullable=False)
     batch = relationship("UploadBatch", back_populates="roommap_rows")
@@ -144,6 +144,9 @@ init_db()
 # =========================================================
 # HELPERS
 # =========================================================
+HKEY_RE = re.compile(r"^L\d{3,6}-\d+$", re.IGNORECASE)
+
+
 def _normalize_col_name(name: str) -> str:
     name = str(name).strip()
     name = unicodedata.normalize("NFKD", name)
@@ -212,15 +215,35 @@ def validate_required(df: pd.DataFrame, required: set, label: str) -> list[str]:
 
 
 def parse_log_datetime(value: str):
-    """Parsea FECHA (con hora). Acepta 'a.m.'/'p.m.'."""
+    """
+    Parse FECHA robusto:
+    - Soporta 'a.m.', 'a. m.', 'p.m.', etc.
+    - Soporta serial Excel (número)
+    """
     if value is None:
         return None
+
     s = str(value).strip()
     if not s:
         return None
-    s = s.replace("a.m.", "AM").replace("p.m.", "PM").replace("A.M.", "AM").replace("P.M.", "PM")
+
+    # Serial Excel (ej: 45260.167...)
     try:
-        dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+        if re.fullmatch(r"\d+(\.\d+)?", s):
+            num = float(s)
+            dt = pd.to_datetime(num, unit="D", origin="1899-12-30", errors="coerce")
+            if pd.notna(dt):
+                return dt.to_pydatetime()
+    except Exception:
+        pass
+
+    s2 = s.lower().strip()
+    s2 = re.sub(r"\ba\.\s*m\.\b", " am", s2)
+    s2 = re.sub(r"\bp\.\s*m\.\b", " pm", s2)
+    s2 = s2.replace("a.m.", " am").replace("p.m.", " pm").replace("a.m", " am").replace("p.m", " pm")
+
+    try:
+        dt = pd.to_datetime(s2, errors="coerce", dayfirst=True)
         if pd.isna(dt):
             return None
         return dt.to_pydatetime()
@@ -237,7 +260,7 @@ def clamp_int(x, default, lo, hi):
 
 
 def get_active_batch():
-    """Lote activo: el de sesión o el más reciente."""
+    """Lote activo: el de sesión o el más reciente en DB."""
     bid = session.get("last_batch_id")
     if bid:
         b = db_session.query(UploadBatch).filter_by(id=bid).first()
@@ -252,7 +275,7 @@ def normalize_on_key(value: str) -> str:
     - 'S1805' -> 'S1805'
     - '1805'  -> 'S1805'
     - '29'    -> 'S0029'
-    - '2F29'  -> '2F29' (no se fuerza)
+    - '2F29'  -> '2F29'
     """
     s = str(value or "").strip().upper()
     if not s:
@@ -267,6 +290,47 @@ def normalize_on_key(value: str) -> str:
 def normalize_hk(value: str) -> str:
     """Normaliza clave log HKEYPLUS/Lxxxx-2: trim+upper."""
     return str(value or "").strip().upper()
+
+
+def _hkey_score(series: pd.Series) -> float:
+    s = series.astype(str).str.strip().str.upper()
+    s = s[s != ""]
+    if len(s) == 0:
+        return 0.0
+    return float(s.str.match(HKEY_RE).mean())
+
+
+def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
+    """
+    Detecta qué columna contiene más valores tipo L####-#.
+    Esto corrige casos donde te quedaba P1/P2 en 'HABITACION'.
+    """
+    if df.empty:
+        return None
+
+    # priorizamos nombres probables pero evaluamos varias
+    candidates = []
+    for c in df.columns:
+        if any(k in c for k in ["HAB", "HKEY", "ROOM"]) or c in {"DUENO", "DUENO_2", "DUENO_CODIGO", "DUENO_NOMBRE", "NRO_HABITACION"}:
+            candidates.append(c)
+
+    if not candidates:
+        candidates = list(df.columns)
+
+    best_col = None
+    best_score = 0.0
+    for c in candidates:
+        if c in {"FECHA", "METODO_APERTURA_PUERTA", "TIPO_DE_TARJETA", "TIPO", "METODO"}:
+            continue
+        score = _hkey_score(df[c])
+        if score > best_score:
+            best_score = score
+            best_col = c
+
+    # exigimos mínimo para considerar “detectado”
+    if best_col and best_score >= 0.15:
+        return best_col
+    return None
 
 
 # =========================================================
@@ -313,7 +377,7 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
-    # LUGAR es la clave "S1805" que se usa en conciliación
+    # LUGAR es la clave que se muestra como habitación (S1805)
     if "LUGAR" in df.columns:
         df["LUGAR"] = df["LUGAR"].astype(str).apply(normalize_on_key)
 
@@ -328,20 +392,28 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
+    # 1) renombre por candidatos
     df = rename_by_candidates(df, CARDLOG_COLMAP)
 
-    # Si trae Dueño duplicado (código y nombre)
+    # 2) dueños
     if "DUENO" in df.columns and "DUENO_2" in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO", "DUENO_2": "DUENO_NOMBRE"})
     elif "DUENO" in df.columns and "DUENO_CODIGO" not in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO"})
 
-    for c in ("NRO_TARJETA", "NRO_HABITACION"):
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
+    # 3) detecta columna real del HKEY (L####-#)
+    detected = detect_log_hkey_column(df)
+    if detected:
+        df["HABITACION"] = df[detected]
 
+    # 4) normaliza
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).apply(normalize_hk)
+
+    if "NRO_TARJETA" in df.columns:
+        df["NRO_TARJETA"] = df["NRO_TARJETA"].astype(str).str.strip()
+    if "NRO_HABITACION" in df.columns:
+        df["NRO_HABITACION"] = df["NRO_HABITACION"].astype(str).str.strip()
 
     if "FECHA" in df.columns:
         df["FECHA"] = df["FECHA"].astype(str).str.strip()
@@ -488,7 +560,6 @@ def importar():
 
         saved_sets = []
 
-        # Reemplaza dataset dentro del mismo batch (evita duplicados)
         if has_ocup:
             df = canonicalize_ontracking(read_excel_upload(f_ocup))
             errors = validate_required(df, {"LUGAR", "DIA", "RUT", "NOMBRE"}, "Ontracking")
@@ -522,35 +593,6 @@ def importar():
                 db_session.bulk_insert_mappings(OntrackingRow, rows)
             saved_sets.append("Ontracking (reemplazado)")
 
-        if has_log:
-            df = canonicalize_cardlog(read_excel_upload(f_log))
-            errors = validate_required(df, {"HABITACION", "FECHA"}, "Log Tarjetas")
-            if errors:
-                for e in errors:
-                    flash(e, "danger")
-                db_session.rollback()
-                return redirect(url_for("importar"))
-
-            db_session.query(CardLogRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
-
-            rows = []
-            for r in df.to_dict(orient="records"):
-                rows.append({
-                    "batch_id": batch.id,
-                    "nro_tarjeta": r.get("NRO_TARJETA", ""),
-                    "nro_habitacion": r.get("NRO_HABITACION", ""),
-                    "habitacion": r.get("HABITACION", ""),  # Lxxxx-2
-                    "metodo_apertura_puerta": r.get("METODO_APERTURA_PUERTA", ""),
-                    "tipo_tarjeta": r.get("TIPO_DE_TARJETA", ""),
-                    "fecha": r.get("FECHA", ""),
-                    "dueno_codigo": r.get("DUENO_CODIGO", ""),
-                    "dueno_nombre": r.get("DUENO_NOMBRE", ""),
-                    "raw": r,
-                })
-            if rows:
-                db_session.bulk_insert_mappings(CardLogRow, rows)
-            saved_sets.append("Log Tarjetas (reemplazado)")
-
         if has_map:
             df = canonicalize_roommap(read_excel_upload(f_map))
             errors = validate_required(df, {"HABITACION", "HKEYPLUS"}, "Mapa")
@@ -575,6 +617,45 @@ def importar():
             if rows:
                 db_session.bulk_insert_mappings(RoomMapRow, rows)
             saved_sets.append("Mapa (reemplazado)")
+
+        if has_log:
+            df = canonicalize_cardlog(read_excel_upload(f_log))
+            errors = validate_required(df, {"HABITACION", "FECHA"}, "Log Tarjetas")
+            if errors:
+                for e in errors:
+                    flash(e, "danger")
+                db_session.rollback()
+                return redirect(url_for("importar"))
+
+            # advertencia si casi no hay L####-#
+            match_rate = 0.0
+            if "HABITACION" in df.columns:
+                s = df["HABITACION"].astype(str).str.strip().str.upper()
+                s = s[s != ""]
+                if len(s) > 0:
+                    match_rate = float(s.str.match(HKEY_RE).mean())
+            if match_rate < 0.15:
+                flash("Advertencia: no se detectaron claves tipo L####-# en el log. Revisa qué columna contiene Lxxxx-x.", "warning")
+
+            db_session.query(CardLogRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
+
+            rows = []
+            for r in df.to_dict(orient="records"):
+                rows.append({
+                    "batch_id": batch.id,
+                    "nro_tarjeta": r.get("NRO_TARJETA", ""),
+                    "nro_habitacion": r.get("NRO_HABITACION", ""),
+                    "habitacion": r.get("HABITACION", ""),  # Lxxxx-2 (ya detectado)
+                    "metodo_apertura_puerta": r.get("METODO_APERTURA_PUERTA", ""),
+                    "tipo_tarjeta": r.get("TIPO_DE_TARJETA", ""),
+                    "fecha": r.get("FECHA", ""),
+                    "dueno_codigo": r.get("DUENO_CODIGO", ""),
+                    "dueno_nombre": r.get("DUENO_NOMBRE", ""),
+                    "raw": r,
+                })
+            if rows:
+                db_session.bulk_insert_mappings(CardLogRow, rows)
+            saved_sets.append("Log Tarjetas (reemplazado)")
 
         db_session.commit()
         session["last_batch_id"] = batch.id
@@ -783,7 +864,7 @@ def admin_delete_log_date():
 
 # =========================================================
 # CONCILIACIÓN
-# match: Ontracking.LUGAR (S1805) -> Mapa.HABITACION (S1805) -> Mapa.HKEYPLUS (L1805-2) -> Log.HABITACION (L1805-2)
+# S1805 (Ontracking.LUGAR) -> Mapa.HABITACION -> Mapa.HKEYPLUS (L1805-2) -> Log.HABITACION
 # =========================================================
 def build_map_on_to_hk(batch_id: int):
     rows = db_session.query(RoomMapRow).filter_by(batch_id=batch_id).all()
@@ -870,7 +951,7 @@ def conciliacion():
 
     rows_out = []
     for r in on_rows:
-        on_room = normalize_on_key(r.lugar)  # S1805 (esto es lo que quieres mostrar)
+        on_room = normalize_on_key(r.lugar)  # S1805 (lo que quieres ver)
         hk = on_to_hk.get(on_room, "")       # L1805-2 desde mapa
 
         if not hk:
