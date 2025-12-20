@@ -3,7 +3,7 @@ import re
 import unicodedata
 from io import BytesIO
 from uuid import uuid4
-from datetime import datetime, date
+from datetime import datetime, date, time
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -60,13 +60,13 @@ db_session = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommi
 Base = declarative_base()
 Base.query = db_session.query_property()
 
+
 # =========================================================
 # MODELOS
 # =========================================================
 class UploadBatch(Base):
     __tablename__ = "upload_batches"
     id = Column(Integer, primary_key=True)
-    # Se mantiene por compatibilidad (no se usa en UI)
     token = Column(String(64), unique=True, nullable=False, index=True, default=lambda: uuid4().hex)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -82,10 +82,10 @@ class OntrackingRow(Base):
 
     modulo = Column(String(50))
     lugar = Column(String(80), index=True)       # CLAVE mostrada (S1805)
-    habitacion = Column(String(80))              # se guarda si existe, no se usa para match principal
+    habitacion = Column(String(80))              # se guarda si existe, no se usa para match
     empresa = Column(Text)
     ontracking_id = Column(String(80))
-    cama = Column(String(20))                    # P / V
+    cama = Column(String(20))                    # P o V
     inicio = Column(String(40))                  # "YYYY-MM-DD"
     termino = Column(String(40))                 # "YYYY-MM-DD"
     dia = Column(String(40), index=True)         # "YYYY-MM-DD"
@@ -107,7 +107,7 @@ class CardLogRow(Base):
     habitacion = Column(String(80), index=True)      # DEBE QUEDAR L####-#
     metodo_apertura_puerta = Column(Text)
     tipo_tarjeta = Column(String(80))
-    fecha = Column(Text)                             # string original con hora
+    fecha = Column(Text)                             # string original con hora (ideal)
     dueno_codigo = Column(String(80))
     dueno_nombre = Column(Text)
 
@@ -120,10 +120,10 @@ class RoomMapRow(Base):
     id = Column(Integer, primary_key=True)
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
-    habitacion = Column(String(80), index=True)  # S1805 (Ontracking)
+    habitacion = Column(String(80), index=True)  # S1805
     modulo = Column(String(80), index=True)
     piso = Column(String(20))
-    hkeyplus = Column(String(80), index=True)    # L1805-2 (Log)
+    hkeyplus = Column(String(80), index=True)    # L1805-2
 
     raw = Column(JSONB, nullable=False)
     batch = relationship("UploadBatch", back_populates="roommap_rows")
@@ -140,10 +140,12 @@ def shutdown_session(exception=None):
 
 init_db()
 
+
 # =========================================================
 # HELPERS
 # =========================================================
 HKEY_RE = re.compile(r"^L\d{3,6}-\d+$", re.IGNORECASE)
+
 
 def _normalize_col_name(name: str) -> str:
     name = str(name).strip()
@@ -151,6 +153,7 @@ def _normalize_col_name(name: str) -> str:
     name = "".join(ch for ch in name if not unicodedata.combining(ch))
     name = re.sub(r"[^A-Za-z0-9]+", "_", name)
     return name.strip("_").upper()
+
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -167,11 +170,13 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = cols
     return df
 
+
 def allowed_filename(filename: str) -> bool:
     if not filename or "." not in filename:
         return False
     ext = filename.rsplit(".", 1)[1].lower()
     return ext in ALLOWED_EXTS
+
 
 def read_excel_upload(file_storage) -> pd.DataFrame:
     filename = file_storage.filename or ""
@@ -189,6 +194,7 @@ def read_excel_upload(file_storage) -> pd.DataFrame:
     df = normalize_columns(df).fillna("")
     return df
 
+
 def rename_by_candidates(df: pd.DataFrame, candidates_map: dict[str, list[str]]) -> pd.DataFrame:
     df = df.copy()
     colset = set(df.columns)
@@ -200,11 +206,13 @@ def rename_by_candidates(df: pd.DataFrame, candidates_map: dict[str, list[str]])
                 break
     return df.rename(columns=rename)
 
+
 def validate_required(df: pd.DataFrame, required: set, label: str) -> list[str]:
     missing = [c for c in sorted(required) if c not in df.columns]
     if missing:
         return [f"{label}: faltan columnas: {', '.join(missing)}"]
     return []
+
 
 def parse_log_datetime(value: str):
     """
@@ -242,12 +250,14 @@ def parse_log_datetime(value: str):
     except Exception:
         return None
 
+
 def clamp_int(x, default, lo, hi):
     try:
         v = int(x)
     except Exception:
         return default
     return max(lo, min(hi, v))
+
 
 def get_active_batch():
     """Lote activo: el de sesión o el más reciente en DB."""
@@ -258,13 +268,14 @@ def get_active_batch():
             return b
     return db_session.query(UploadBatch).order_by(UploadBatch.created_at.desc()).first()
 
+
 def normalize_on_key(value: str) -> str:
     """
     Normaliza clave Ontracking/Mapa para que se vea como S#### si corresponde.
     - 'S1805' -> 'S1805'
     - '1805'  -> 'S1805'
     - '29'    -> 'S0029'
-    - '2F29'  -> '2F29' (no se fuerza)
+    - '2F29'  -> '2F29'
     """
     s = str(value or "").strip().upper()
     if not s:
@@ -275,9 +286,11 @@ def normalize_on_key(value: str) -> str:
         return "S" + s.zfill(4)
     return s
 
+
 def normalize_hk(value: str) -> str:
     """Normaliza clave log HKEYPLUS/Lxxxx-2: trim+upper."""
     return str(value or "").strip().upper()
+
 
 def _hkey_score(series: pd.Series) -> float:
     s = series.astype(str).str.strip().str.upper()
@@ -285,6 +298,7 @@ def _hkey_score(series: pd.Series) -> float:
     if len(s) == 0:
         return 0.0
     return float(s.str.match(HKEY_RE).mean())
+
 
 def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
     """
@@ -294,13 +308,18 @@ def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
     if df.empty:
         return None
 
-    # evaluamos todas excepto obvias
-    skip = {"FECHA", "METODO_APERTURA_PUERTA", "TIPO_DE_TARJETA", "TIPO", "METODO"}
+    candidates = []
+    for c in df.columns:
+        if any(k in c for k in ["HAB", "HKEY", "ROOM"]):
+            candidates.append(c)
+
+    if not candidates:
+        candidates = list(df.columns)
+
     best_col = None
     best_score = 0.0
-
-    for c in df.columns:
-        if c in skip:
+    for c in candidates:
+        if c in {"FECHA", "METODO_APERTURA_PUERTA", "TIPO_DE_TARJETA", "TIPO", "METODO"}:
             continue
         score = _hkey_score(df[c])
         if score > best_score:
@@ -310,6 +329,7 @@ def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
     if best_col and best_score >= 0.15:
         return best_col
     return None
+
 
 # =========================================================
 # CANONICALIZACIÓN
@@ -347,16 +367,19 @@ ROOMMAP_COLMAP = {
     "HKEYPLUS": ["HKEYPLUS", "HKEY_PLUS", "HKEY", "HKEYPLU"],
 }
 
+
 def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, ONTRACKING_COLMAP)
 
-    for c in ("RUT", "MODULO", "CAMA"):
+    for c in ("RUT", "MODULO"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
-    # LUGAR es la clave que se muestra como habitación (S1805)
     if "LUGAR" in df.columns:
         df["LUGAR"] = df["LUGAR"].astype(str).apply(normalize_on_key)
+
+    if "CAMA" in df.columns:
+        df["CAMA"] = df["CAMA"].astype(str).str.strip().str.upper()
 
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).str.strip()
@@ -367,6 +390,7 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
             df[c] = dt.dt.date.astype(str).replace("NaT", "")
     return df
 
+
 def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, CARDLOG_COLMAP)
 
@@ -376,7 +400,7 @@ def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     elif "DUENO" in df.columns and "DUENO_CODIGO" not in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO"})
 
-    # detecta columna real del HKEY (L####-#)
+    # detectar columna real de HKEY (L####-#)
     detected = detect_log_hkey_column(df)
     if detected:
         df["HABITACION"] = df[detected]
@@ -385,11 +409,20 @@ def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).apply(normalize_hk)
 
-    for c in ("NRO_TARJETA", "NRO_HABITACION", "FECHA", "DUENO_CODIGO", "DUENO_NOMBRE"):
+    for c in ("NRO_TARJETA", "NRO_HABITACION"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
+    if "FECHA" in df.columns:
+        df["FECHA"] = df["FECHA"].astype(str).str.strip()
+
+    if "DUENO_CODIGO" in df.columns:
+        df["DUENO_CODIGO"] = df["DUENO_CODIGO"].astype(str).str.strip()
+    if "DUENO_NOMBRE" in df.columns:
+        df["DUENO_NOMBRE"] = df["DUENO_NOMBRE"].astype(str).str.strip()
+
     return df
+
 
 def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, ROOMMAP_COLMAP)
@@ -406,8 +439,9 @@ def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+
 # =========================================================
-# PLANTILLAS (con ejemplos)
+# PLANTILLAS (con fila de ejemplo)
 # =========================================================
 TEMPLATE_COLUMNS = {
     "ontracking": [
@@ -433,11 +467,11 @@ TEMPLATE_SHEETS = {
 TEMPLATE_EXAMPLES = {
     "ontracking": {
         "MODULO": "2F",
-        "LUGAR": "1805",
+        "LUGAR": "1805 (se convertirá a S1805)",
         "HABITACION": "29",
         "EMPRESA": "BESALCO CONSTRUCCIONES SA",
         "ID": "GC072462",
-        "CAMA": "V",
+        "CAMA": "P (o V)",
         "INICIO": "2025-12-05",
         "TERMINO": "2025-12-18",
         "DIA": "2025-12-18",
@@ -453,24 +487,24 @@ TEMPLATE_EXAMPLES = {
         "TIPO_DE_TARJETA": "-",
         "FECHA": "19/12/2025 4:00:48 a.m.",
         "DUENO_CODIGO": "P1",
-        "DUENO_NOMBRE": "JUAN JOFRE",
+        "DUENO_NOMBRE": "MAURICIO LOPEZ",
     },
     "mapa_habitaciones": {
-        "HABITACION": "1805",
+        "HABITACION": "S1805 (o 1805)",
         "MODULO": "5400-M18",
         "PISO": "P1",
         "HKEYPLUS": "L1805-2",
-    },
+    }
 }
+
 
 def build_template_xlsx(template_key: str) -> BytesIO:
     cols = TEMPLATE_COLUMNS[template_key]
     sheet = TEMPLATE_SHEETS[template_key]
 
-    example = {c: TEMPLATE_EXAMPLES.get(template_key, {}).get(c, "") for c in cols}
-    blank = {c: "" for c in cols}
-
-    df = pd.DataFrame([example, blank], columns=cols)
+    # 1 fila de ejemplo (tipo de dato)
+    example = TEMPLATE_EXAMPLES.get(template_key, {})
+    df = pd.DataFrame([{c: example.get(c, "") for c in cols}], columns=cols)
 
     bio = BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
@@ -485,17 +519,17 @@ def build_template_xlsx(template_key: str) -> BytesIO:
             cell.font = header_font
             cell.alignment = header_alignment
 
-        # marcar fila de ejemplo (fila 2) con itálica
-        example_font = Font(italic=True)
+        # fila ejemplo en itálica
         for cell in ws[2]:
-            cell.font = example_font
+            cell.font = Font(italic=True)
 
         for i, col_name in enumerate(cols, start=1):
-            width = max(14, min(44, len(col_name) + 2))
+            width = max(14, min(48, len(col_name) + 10))
             ws.column_dimensions[get_column_letter(i)].width = width
 
     bio.seek(0)
     return bio
+
 
 # =========================================================
 # CONTEXT
@@ -504,6 +538,7 @@ def build_template_xlsx(template_key: str) -> BytesIO:
 def inject_now():
     return {"now": datetime.now()}
 
+
 # =========================================================
 # ROUTES
 # =========================================================
@@ -511,9 +546,11 @@ def inject_now():
 def healthz():
     return {"status": "ok"}
 
+
 @app.get("/")
 def index():
     return redirect(url_for("importar"))
+
 
 @app.get("/plantilla/<template_key>.xlsx")
 def descargar_plantilla(template_key: str):
@@ -526,6 +563,7 @@ def descargar_plantilla(template_key: str):
         download_name=f"plantilla_{template_key}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
 
 # ===========================
 # IMPORTAR (MISMO BATCH)
@@ -562,7 +600,7 @@ def importar():
 
         if has_ocup:
             df = canonicalize_ontracking(read_excel_upload(f_ocup))
-            errors = validate_required(df, {"LUGAR", "DIA"}, "Ontracking")
+            errors = validate_required(df, {"LUGAR", "DIA", "RUT", "NOMBRE"}, "Ontracking")
             if errors:
                 for e in errors:
                     flash(e, "danger")
@@ -576,11 +614,11 @@ def importar():
                 rows.append({
                     "batch_id": batch.id,
                     "modulo": r.get("MODULO", ""),
-                    "lugar": r.get("LUGAR", ""),
+                    "lugar": r.get("LUGAR", ""),          # S1805
                     "habitacion": r.get("HABITACION", ""),
                     "empresa": r.get("EMPRESA", ""),
                     "ontracking_id": r.get("ID", ""),
-                    "cama": (r.get("CAMA", "") or "").strip(),
+                    "cama": r.get("CAMA", ""),
                     "inicio": r.get("INICIO", ""),
                     "termino": r.get("TERMINO", ""),
                     "dia": r.get("DIA", ""),
@@ -608,10 +646,10 @@ def importar():
             for r in df.to_dict(orient="records"):
                 rows.append({
                     "batch_id": batch.id,
-                    "habitacion": r.get("HABITACION", ""),
+                    "habitacion": r.get("HABITACION", ""),  # Sxxxx
                     "modulo": r.get("MODULO", ""),
                     "piso": r.get("PISO", ""),
-                    "hkeyplus": r.get("HKEYPLUS", ""),
+                    "hkeyplus": r.get("HKEYPLUS", ""),      # Lxxxx-2
                     "raw": r,
                 })
             if rows:
@@ -645,7 +683,7 @@ def importar():
                     "batch_id": batch.id,
                     "nro_tarjeta": r.get("NRO_TARJETA", ""),
                     "nro_habitacion": r.get("NRO_HABITACION", ""),
-                    "habitacion": r.get("HABITACION", ""),
+                    "habitacion": r.get("HABITACION", ""),  # Lxxxx-2 (ya detectado)
                     "metodo_apertura_puerta": r.get("METODO_APERTURA_PUERTA", ""),
                     "tipo_tarjeta": r.get("TIPO_DE_TARJETA", ""),
                     "fecha": r.get("FECHA", ""),
@@ -667,6 +705,7 @@ def importar():
         db_session.rollback()
         flash(f"Error: {ex}", "danger")
         return redirect(url_for("importar"))
+
 
 # =========================================================
 # PREVIEW (tabs + paginación + borrado)
@@ -735,6 +774,7 @@ def preview():
         total_pages=total_pages,
     )
 
+
 @app.post("/admin/delete_all")
 def admin_delete_all():
     batch = get_active_batch()
@@ -752,6 +792,7 @@ def admin_delete_all():
         flash(f"Error eliminando lote: {ex}", "danger")
 
     return redirect(url_for("preview"))
+
 
 @app.post("/admin/delete_row/<dataset>/<int:row_id>")
 def admin_delete_row(dataset: str, row_id: int):
@@ -782,6 +823,7 @@ def admin_delete_row(dataset: str, row_id: int):
     page = request.form.get("page") or "1"
     per_page = request.form.get("per_page") or "25"
     return redirect(url_for("preview", tab=tab, page=page, per_page=per_page))
+
 
 @app.post("/admin/delete_ontracking_date")
 def admin_delete_ontracking_date():
@@ -814,6 +856,7 @@ def admin_delete_ontracking_date():
 
     return redirect(url_for("preview", tab="ontracking"))
 
+
 @app.post("/admin/delete_log_date")
 def admin_delete_log_date():
     batch = get_active_batch()
@@ -836,7 +879,8 @@ def admin_delete_log_date():
         logs = db_session.query(CardLogRow).filter_by(batch_id=batch.id).all()
         ids = []
         for r in logs:
-            dt = parse_log_datetime(r.fecha)
+            # mismo criterio que conciliación (preferir timestamp con hora)
+            dt = _pick_log_dt_best(r)
             if dt and dt.date() == target_date:
                 ids.append(r.id)
 
@@ -856,9 +900,10 @@ def admin_delete_log_date():
 
     return redirect(url_for("preview", tab="log"))
 
+
 # =========================================================
 # CONCILIACIÓN
-# Ontracking.LUGAR (S####) -> Mapa.HABITACION -> Mapa.HKEYPLUS (L####-#) -> Log.HABITACION
+# S1805 (Ontracking.LUGAR) -> Mapa.HABITACION -> Mapa.HKEYPLUS (L1805-2) -> Log.HABITACION
 # =========================================================
 def build_map_on_to_hk(batch_id: int):
     rows = db_session.query(RoomMapRow).filter_by(batch_id=batch_id).all()
@@ -866,21 +911,107 @@ def build_map_on_to_hk(batch_id: int):
     for r in rows:
         on_key = normalize_on_key(r.habitacion)
         hk = normalize_hk(r.hkeyplus)
-        if on_key and hk:
+        if on_key:
             on_to_hk[on_key] = hk
     return on_to_hk
 
+
+def _format_dt_ui(dt: datetime) -> str:
+    # "19/12/2025 4:00:48 a.m."
+    d = dt.strftime("%d/%m/%Y")
+    h = dt.strftime("%I:%M:%S").lstrip("0")  # 04 -> 4
+    ampm = dt.strftime("%p").lower()
+    ampm = "a.m." if ampm == "am" else "p.m."
+    return f"{d} {h} {ampm}"
+
+
+def _looks_like_datetime_text(s: str) -> bool:
+    s = (s or "").strip().lower()
+    return (":" in s) or ("am" in s) or ("pm" in s) or ("a.m" in s) or ("p.m" in s)
+
+
+def _pick_log_dt_best(row: CardLogRow):
+    """
+    Devuelve el mejor datetime disponible para:
+    - filtrar por fecha
+    - mostrar hora real
+
+    Caso común tuyo:
+    - FECHA viene sin hora (00:00:00)
+    - DUENO_CODIGO trae la hora real
+    """
+    f = (row.fecha or "").strip()
+    dc = (row.dueno_codigo or "").strip()
+    dn = (row.dueno_nombre or "").strip()
+
+    dt_f = parse_log_datetime(f) if f else None
+    dt_dc = parse_log_datetime(dc) if dc else None
+    dt_dn = parse_log_datetime(dn) if dn else None
+
+    # preferimos el que tenga "hora real"
+    candidates = []
+    if dt_f:
+        score = 2 if (_looks_like_datetime_text(f) and dt_f.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_f))
+    if dt_dc:
+        score = 2 if (_looks_like_datetime_text(dc) and dt_dc.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_dc))
+    if dt_dn:
+        score = 2 if (_looks_like_datetime_text(dn) and dt_dn.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_dn))
+
+    if not candidates:
+        return None
+
+    # score alto primero, y si empata, el más reciente
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return candidates[0][1]
+
+
+def _pick_opener(row: CardLogRow) -> str:
+    """
+    Preferimos un texto que NO sea fecha/hora.
+    """
+    dn = (row.dueno_nombre or "").strip()
+    dc = (row.dueno_codigo or "").strip()
+
+    if dn and parse_log_datetime(dn) is None:
+        return dn
+    if dc and parse_log_datetime(dc) is None:
+        return dc
+
+    return dn or dc or "Sin dueño"
+
+
+def build_first_row_id_by_room_for_day(batch_id: int, dstr: str) -> dict[str, int]:
+    """
+    Para no repetir logs por habitación cuando hay dos camas:
+    logs se muestran sólo en la primera fila de esa habitación.
+    """
+    rows = (db_session.query(OntrackingRow.id, OntrackingRow.lugar, OntrackingRow.cama)
+            .filter_by(batch_id=batch_id)
+            .filter(OntrackingRow.dia == dstr)
+            .order_by(OntrackingRow.lugar.asc(), OntrackingRow.cama.asc(), OntrackingRow.id.asc())
+            .all())
+
+    first_id = {}
+    for rid, lugar, _cama in rows:
+        room = normalize_on_key(lugar)
+        if not room:
+            continue
+        if room not in first_id:
+            first_id[room] = int(rid)
+    return first_id
+
+
 def logs_grouped_for_date(batch_id: int, target: date):
     """
-    hk -> {
-      total: int,
-      unique_count: int,
-      display: [ {opener, fecha_raw, dt} ... ]  # 1 o 2 según regla
-    }
-    Regla:
-    - unique_count == 1 -> 1 display
-    - unique_count == 2 -> 2 display (dos personas)
-    - unique_count > 2  -> 1 display (solo la última)
+    hk -> { total:int, display:[{opener, fecha_ui}] }
+
+    Reglas:
+    - Si hay 1 log: 1 línea
+    - Si hay >=2 logs: mostramos 2 líneas (idealmente dos nombres distintos si existen)
+    - El total real va en la columna #
     """
     all_logs = (db_session.query(CardLogRow)
                 .filter_by(batch_id=batch_id)
@@ -889,54 +1020,45 @@ def logs_grouped_for_date(batch_id: int, target: date):
 
     tmp = {}
     for r in all_logs:
-        dt = parse_log_datetime(r.fecha)
+        dt = _pick_log_dt_best(r)
         if not dt or dt.date() != target:
             continue
 
         hk = normalize_hk(r.habitacion)
-        opener = (r.dueno_nombre or r.dueno_codigo or "").strip() or "Sin dueño"
-        fecha_raw = (r.fecha or "").strip()
+        opener = _pick_opener(r)
 
         rec = tmp.setdefault(hk, {"total": 0, "events": []})
         rec["total"] += 1
         rec["events"].append({
             "dt": dt,
             "opener": opener,
-            "fecha_raw": fecha_raw,
+            "fecha_ui": _format_dt_ui(dt),
         })
 
     out = {}
     for hk, rec in tmp.items():
         events = sorted(rec["events"], key=lambda x: x["dt"], reverse=True)
-        all_openers = [e["opener"] for e in events]
-        unique_openers = list(dict.fromkeys(all_openers))  # preserva orden (desc por dt)
-        unique_count = len(unique_openers)
 
-        # construye lista deduplicada por opener quedándose con el evento más reciente por opener
-        seen = set()
-        per_opener = []
-        for e in events:
-            if e["opener"] in seen:
-                continue
-            seen.add(e["opener"])
-            per_opener.append(e)
-            if len(per_opener) >= 2:
-                break
+        display = []
+        if len(events) >= 1:
+            display.append(events[0])
 
-        if unique_count <= 1:
-            display = per_opener[:1]
-        elif unique_count == 2:
-            display = per_opener[:2]
-        else:
-            display = per_opener[:1]  # más de 2: solo última
+        if len(events) >= 2:
+            # segunda línea: preferimos nombre distinto si existe
+            first_name = events[0]["opener"]
+            second = None
+            for e in events[1:]:
+                if e["opener"] != first_name:
+                    second = e
+                    break
+            if second is None:
+                second = events[1]
+            display.append(second)
 
-        out[hk] = {
-            "total": int(rec["total"]),
-            "unique_count": unique_count,
-            "display": display
-        }
+        out[hk] = {"total": int(rec["total"]), "display": display[:2]}
 
     return out
+
 
 @app.get("/conciliacion")
 def conciliacion():
@@ -965,105 +1087,26 @@ def conciliacion():
 
     dstr = target_date.isoformat()
 
-    # Ontracking del día
-    on_rows_all = (db_session.query(OntrackingRow)
-                   .filter_by(batch_id=batch.id)
-                   .filter(OntrackingRow.dia == dstr)
-                   .order_by(OntrackingRow.id.asc())
-                   .all())
+    # UNA FILA POR REGISTRO Ontracking (separando P y V)
+    q = (db_session.query(OntrackingRow)
+         .filter_by(batch_id=batch.id)
+         .filter(OntrackingRow.dia == dstr)
+         .order_by(OntrackingRow.lugar.asc(), OntrackingRow.cama.asc(), OntrackingRow.id.asc()))
 
-    # Agrupar por habitación (LUGAR)
-    rooms = {}
-    for r in on_rows_all:
-        room = normalize_on_key(r.lugar)
-        if not room:
-            continue  # evita filas "vacías" que luego rompen la conciliación
-
-        rec = rooms.setdefault(room, {
-            "room": room,
-            "ruts": [],
-            "names": [],
-            "empresas": [],
-            "camas": set(),
-            "inicio_min": None,
-            "termino_max": None,
-        })
-
-        rut = (r.rut or "").strip()
-        nom = (r.nombre or "").strip()
-        emp = (r.empresa or "").strip()
-        cama = (r.cama or "").strip().upper()
-
-        if rut and rut not in rec["ruts"]:
-            rec["ruts"].append(rut)
-        if nom and nom not in rec["names"]:
-            rec["names"].append(nom)
-        if emp and emp not in rec["empresas"]:
-            rec["empresas"].append(emp)
-        if cama:
-            rec["camas"].add(cama)
-
-        # min inicio / max termino (si vienen)
-        ini = (r.inicio or "").strip()
-        ter = (r.termino or "").strip()
-
-        if ini:
-            try:
-                di = datetime.strptime(ini, "%Y-%m-%d").date()
-                if rec["inicio_min"] is None or di < rec["inicio_min"]:
-                    rec["inicio_min"] = di
-            except Exception:
-                pass
-
-        if ter:
-            try:
-                dt = datetime.strptime(ter, "%Y-%m-%d").date()
-                if rec["termino_max"] is None or dt > rec["termino_max"]:
-                    rec["termino_max"] = dt
-            except Exception:
-                pass
-
-    # Lista ordenada y paginación
-    room_list = sorted(rooms.values(), key=lambda x: x["room"])
-
-    total = len(room_list)
+    total = q.count()
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, total_pages)
+    on_rows = q.offset((page - 1) * per_page).limit(per_page).all()
 
-    start = (page - 1) * per_page
-    end = start + per_page
-    room_page = room_list[start:end]
-
-    # Mapa S#### -> L####-#
     on_to_hk = build_map_on_to_hk(batch.id)
-
-    # Logs del día agrupados por HK
     logs_by_hk = logs_grouped_for_date(batch.id, target_date)
+    first_row_id_by_room = build_first_row_id_by_room_for_day(batch.id, dstr)
 
     rows_out = []
-    for rec in room_page:
-        room = rec["room"]
-        hk = on_to_hk.get(room, "")
-
-        # displays seguros (evita IndexError)
-        rut_display = ""
-        if rec["ruts"]:
-            rut_display = rec["ruts"][0] if len(rec["ruts"]) == 1 else f"{rec['ruts'][0]} (+{len(rec['ruts']) - 1})"
-
-        name_display = ""
-        if rec["names"]:
-            name_display = rec["names"][0] if len(rec["names"]) == 1 else f"{rec['names'][0]} (+{len(rec['names']) - 1})"
-
-        emp_display = ""
-        if rec["empresas"]:
-            emp_display = rec["empresas"][0] if len(rec["empresas"]) == 1 else f"{rec['empresas'][0]} (+{len(rec['empresas']) - 1})"
-
-        cama_display = ""
-        if rec["camas"]:
-            cama_display = "/".join(sorted(rec["camas"]))
-
-        ini_display = rec["inicio_min"].isoformat() if rec["inicio_min"] else ""
-        ter_display = rec["termino_max"].isoformat() if rec["termino_max"] else ""
+    for r in on_rows:
+        on_room = normalize_on_key(r.lugar)  # Sxxxx
+        hk = on_to_hk.get(on_room, "")       # Lxxxx-#
+        cama = (r.cama or "").strip().upper()
 
         status = "Sin mapa" if not hk else "Sin log"
         aperturas = []
@@ -1073,22 +1116,27 @@ def conciliacion():
             info = logs_by_hk.get(hk)
             if info:
                 status = "OK"
-                log_count = int(info["total"])
-                for e in info["display"]:
-                    # IMPORTANTE: se muestra la FECHA ORIGINAL del archivo
-                    aperturas.append(f"{e['opener']} — {e['fecha_raw']}")
+
+                # logs SOLO en la primera fila de esa habitación (para no repetir)
+                if int(r.id) == int(first_row_id_by_room.get(on_room, r.id)):
+                    log_count = int(info["total"])
+                    for e in info["display"]:
+                        aperturas.append(f"{e['opener']} — {e['fecha_ui']}")
+                else:
+                    log_count = None
+                    aperturas = None
 
         rows_out.append({
-            "on_room": room,     # S1805 / S0029
-            "hk": hk,            # L1805-2
-            "cama": cama_display,
-            "rut": rut_display,
-            "nombre": name_display,
-            "empresa": emp_display,
-            "inicio": ini_display,
-            "termino": ter_display,
-            "aperturas": aperturas,
+            "on_room": on_room,
+            "hk": hk,
+            "cama": cama,
+            "rut": (r.rut or "").strip(),
+            "nombre": (r.nombre or "").strip(),
+            "empresa": (r.empresa or "").strip(),
+            "inicio": (r.inicio or "").strip(),
+            "termino": (r.termino or "").strip(),
             "status": status,
+            "aperturas": aperturas,
             "log_count": log_count,
         })
 
@@ -1104,6 +1152,7 @@ def conciliacion():
         total=total,
         total_pages=total_pages,
     )
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "10000")), debug=True)
