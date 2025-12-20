@@ -17,15 +17,9 @@
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
       <div class="fw-semibold">Plantillas</div>
       <div class="btn-group" role="group">
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">
-          Ontracking
-        </a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">
-          Log Tarjetas
-        </a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">
-          Mapa
-        </a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">Ontracking</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">Log Tarjetas</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">Mapa</a>
       </div>
     </div>
   </div>
@@ -38,7 +32,7 @@
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1">Log Tarjetas</label>
+        <label class="form-label fw-semibold mb-1">Log Tarjetas (incluye FECHA)</label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
       </div>
 
@@ -48,9 +42,7 @@
       </div>
 
       <div class="col-12 d-flex justify-content-end">
-        <button class="btn btn-primary-custom" type="submit">
-          Guardar
-        </button>
+        <button class="btn btn-primary-custom" type="submit">Guardar</button>
       </div>
     </form>
   </div>
