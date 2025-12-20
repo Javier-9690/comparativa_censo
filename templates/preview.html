@@ -7,33 +7,32 @@
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <div>
       <div class="page-title mb-0">Preview</div>
-      <div class="text-muted small">
-        Token: <span class="fw-semibold">{{ token }}</span>
-        {% if created_at %}· {{ created_at }}{% endif %}
-      </div>
+      {% if has_data %}
+      <div class="text-muted small">Última carga: {{ created_at }}</div>
+      {% endif %}
     </div>
-
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('importar') }}">
-      <i class="fa-solid fa-arrow-left me-1"></i> Volver
-    </a>
   </div>
+
+  {% if not has_data %}
+    <div class="text-muted">Sin datos para mostrar.</div>
+  {% else %}
 
   <ul class="nav nav-tabs mb-3">
     <li class="nav-item">
       <a class="nav-link {% if tab=='ontracking' %}active{% endif %}"
-         href="{{ url_for('preview', token=token, tab='ontracking', page=1, per_page=per_page) }}">
+         href="{{ url_for('preview', tab='ontracking', page=1, per_page=per_page) }}">
         Ontracking <span class="badge text-bg-light border">{{ counts.ontracking }}</span>
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link {% if tab=='log' %}active{% endif %}"
-         href="{{ url_for('preview', token=token, tab='log', page=1, per_page=per_page) }}">
+         href="{{ url_for('preview', tab='log', page=1, per_page=per_page) }}">
         Log Tarjetas <span class="badge text-bg-light border">{{ counts.log }}</span>
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link {% if tab=='mapa' %}active{% endif %}"
-         href="{{ url_for('preview', token=token, tab='mapa', page=1, per_page=per_page) }}">
+         href="{{ url_for('preview', tab='mapa', page=1, per_page=per_page) }}">
         Mapa <span class="badge text-bg-light border">{{ counts.mapa }}</span>
       </a>
     </li>
@@ -46,15 +45,15 @@
 
     <div class="d-flex gap-2">
       {% if tab=='ontracking' and counts.ontracking > 0 %}
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='ocupacion') }}">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', dataset='ocupacion') }}">
           <i class="fa-solid fa-download me-1"></i> CSV
         </a>
       {% elif tab=='log' and counts.log > 0 %}
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='log_tarjetas') }}">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', dataset='log_tarjetas') }}">
           <i class="fa-solid fa-download me-1"></i> CSV
         </a>
       {% elif tab=='mapa' and counts.mapa > 0 %}
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', token=token, dataset='map_habitaciones') }}">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_csv', dataset='map_habitaciones') }}">
           <i class="fa-solid fa-download me-1"></i> CSV
         </a>
       {% endif %}
@@ -84,17 +83,16 @@
     <nav class="mt-3">
       <ul class="pagination pagination-sm mb-0">
         <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('preview', token=token, tab=tab, page=page-1, per_page=per_page) }}">Anterior</a>
+          <a class="page-link" href="{{ url_for('preview', tab=tab, page=page-1, per_page=per_page) }}">Anterior</a>
         </li>
-        <li class="page-item disabled">
-          <span class="page-link">{{ page }}</span>
-        </li>
+        <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
         <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('preview', token=token, tab=tab, page=page+1, per_page=per_page) }}">Siguiente</a>
+          <a class="page-link" href="{{ url_for('preview', tab=tab, page=page+1, per_page=per_page) }}">Siguiente</a>
         </li>
       </ul>
     </nav>
   {% endif %}
 
+  {% endif %}
 </div>
 {% endblock %}
