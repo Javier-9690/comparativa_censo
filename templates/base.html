@@ -22,13 +22,11 @@
     :root {
       --primary-color: #264796;
       --secondary-color: #333333;
-      --accent-color: #ff7f00;
       --light-bg: #f3f4f6;
       --border-color: #dee2e6;
     }
 
     body {
-      padding-top: 0;
       background-color: var(--light-bg);
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
@@ -69,10 +67,7 @@
       border-radius: .25rem;
       display: flex;
       align-items: center;
-      gap: .25rem;
-    }
-    .main-navbar .nav-link i {
-      font-size: .95rem;
+      gap: .35rem;
     }
     .main-navbar .nav-link:hover {
       background-color: rgba(255,255,255,.09);
@@ -96,15 +91,13 @@
     .page-title {
       color: #1f2937;
       font-weight: 600;
-      margin-bottom: 1rem;
       font-size: 1.9rem;
     }
 
     .filter-card {
-      background-color: var(--light-bg);
+      background-color: #f3f4f6;
       border-radius: 6px;
       padding: 1.1rem 1.25rem;
-      margin-bottom: 1.2rem;
       border: 1px solid #e5e7eb;
     }
 
@@ -190,7 +183,7 @@
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'importar' %}active{% endif %}"
              href="{{ url_for('importar') }}">
-            <i class="fa-solid fa-right-to-bracket"></i> Carga (Plantillas + Importación)
+            <i class="fa-solid fa-file-excel"></i> Carga
           </a>
         </li>
 
@@ -198,7 +191,7 @@
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'preview' %}active{% endif %} {% if not t %}disabled{% endif %}"
              {% if t %}href="{{ url_for('preview', token=t) }}"{% endif %}>
-            <i class="fa-solid fa-table"></i> Previsualización
+            <i class="fa-solid fa-table"></i> Preview
           </a>
         </li>
 
