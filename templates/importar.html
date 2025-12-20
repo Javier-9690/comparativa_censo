@@ -4,122 +4,77 @@
 {% block content %}
 <div class="content-container">
 
-  <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mb-3">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <div>
-      <div class="page-title mb-1">Carga de información</div>
-      <div class="text-muted">
-        En esta página puedes descargar plantillas y subir 1, 2 o 3 archivos Excel.
+      <div class="page-title mb-0">Carga</div>
+      <div class="text-muted small">Plantillas y subida de archivos.</div>
+    </div>
+
+    {% if last_token %}
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge text-bg-light border">Token: {{ last_token }}</span>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('preview', token=last_token) }}">
+        <i class="fa-solid fa-eye me-1"></i> Ver
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Plantillas (solo botones) -->
+  <div class="filter-card mb-3">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div class="fw-semibold">Plantillas</div>
+      <div class="btn-group" role="group">
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">
+          <i class="fa-solid fa-bed me-1"></i> Ontracking
+        </a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">
+          <i class="fa-solid fa-id-card me-1"></i> Log Tarjetas
+        </a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">
+          <i class="fa-solid fa-map-location-dot me-1"></i> Mapa
+        </a>
       </div>
     </div>
   </div>
 
-  {% if last_token %}
-  <div class="alert alert-secondary d-flex align-items-center justify-content-between flex-wrap gap-2">
-    <div>
-      Último lote en sesión: <span class="fw-semibold">{{ last_token }}</span>
-      <span class="text-muted">· Puedes usarlo para completar cargas parciales.</span>
-    </div>
-    <a class="btn btn-outline-dark btn-sm" href="{{ url_for('preview', token=last_token) }}">
-      <i class="fa-solid fa-eye me-1"></i> Ver previsualización
-    </a>
-  </div>
-  {% endif %}
-
-  <!-- Sección Plantillas -->
+  <!-- Subida (solo lo necesario) -->
   <div class="filter-card">
-    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-      <div class="fw-semibold">
-        <i class="fa-solid fa-file-arrow-down me-2"></i>Plantillas oficiales (recomendado)
-      </div>
-      <div class="text-muted small">Usa estas plantillas para evitar errores de encabezado/formato.</div>
-    </div>
-
-    <div class="row g-3">
-      <div class="col-12 col-lg-4">
-        <div class="p-3 bg-white border rounded-3 h-100">
-          <div class="fw-semibold mb-2"><i class="fa-solid fa-bed me-2"></i>Ontracking (Ocupación)</div>
-          <div class="text-muted small mb-3">
-            MODULO, LUGAR, HABITACION, EMPRESA, ID, CAMA, INICIO, TERMINO, DIA, CAMAS_OCUPADAS, RUT, NOMBRE
-          </div>
-          <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">
-            <i class="fa-solid fa-download me-1"></i> Descargar plantilla
-          </a>
-        </div>
-      </div>
-
-      <div class="col-12 col-lg-4">
-        <div class="p-3 bg-white border rounded-3 h-100">
-          <div class="fw-semibold mb-2"><i class="fa-solid fa-id-card me-2"></i>Log de Tarjetas</div>
-          <div class="text-muted small mb-3">
-            NRO_TARJETA, NRO_HABITACION, HABITACION, METODO_APERTURA_PUERTA, TIPO_DE_TARJETA, FECHA, DUENO_CODIGO, DUENO_NOMBRE
-          </div>
-          <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">
-            <i class="fa-solid fa-download me-1"></i> Descargar plantilla
-          </a>
-        </div>
-      </div>
-
-      <div class="col-12 col-lg-4">
-        <div class="p-3 bg-white border rounded-3 h-100">
-          <div class="fw-semibold mb-2"><i class="fa-solid fa-map-location-dot me-2"></i>Mapa Habitaciones</div>
-          <div class="text-muted small mb-3">
-            HABITACION, MODULO, PISO, HKEYPLUS
-          </div>
-          <a class="btn btn-primary-custom btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">
-            <i class="fa-solid fa-download me-1"></i> Descargar plantilla
-          </a>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Sección Importación -->
-  <div class="filter-card">
-    <div class="fw-semibold mb-2">
-      <i class="fa-solid fa-upload me-2"></i>Importar Excel (1, 2 o 3 archivos)
-    </div>
-    <div class="text-muted small mb-3">
-      Puedes subir un solo archivo si quieres. Si deseas completar un lote existente, pega el token antes de subir.
-    </div>
-
     <form method="post" enctype="multipart/form-data" class="row g-3">
+
       <div class="col-12">
-        <label class="form-label fw-semibold">
-          Token de lote (opcional)
-        </label>
-        <input class="form-control" type="text" name="batch_token" placeholder="Pega aquí un token existente para completar el lote (opcional)">
-        <div class="form-text">
-          Si lo dejas vacío, el sistema creará un lote nuevo.
-          {% if last_token %}Tu último token es: <span class="fw-semibold">{{ last_token }}</span>.{% endif %}
+        <button class="btn btn-link p-0 text-decoration-none" type="button"
+                data-bs-toggle="collapse" data-bs-target="#tokenBox" aria-expanded="false">
+          <i class="fa-solid fa-key me-1"></i> Token (opcional)
+        </button>
+
+        <div class="collapse mt-2" id="tokenBox">
+          <input class="form-control" type="text" name="batch_token"
+                 placeholder="Pegar token para completar/reemplazar un lote">
         </div>
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold">
-          <i class="fa-solid fa-bed me-1"></i> Ontracking (Ocupación)
-        </label>
+        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-bed me-1"></i>Ontracking</label>
         <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold">
-          <i class="fa-solid fa-id-card me-1"></i> Log de Tarjetas
-        </label>
+        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-id-card me-1"></i>Log Tarjetas</label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold">
-          <i class="fa-solid fa-map-location-dot me-1"></i> Mapa Habitaciones
-        </label>
+        <label class="form-label fw-semibold mb-1"><i class="fa-solid fa-map-location-dot me-1"></i>Mapa</label>
         <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls">
       </div>
 
       <div class="col-12 d-flex justify-content-end">
         <button class="btn btn-primary-custom" type="submit">
-          <i class="fa-solid fa-floppy-disk me-1"></i> Guardar en base de datos
+          <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
         </button>
       </div>
+
     </form>
   </div>
 
