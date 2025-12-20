@@ -90,7 +90,7 @@ class OntrackingRow(Base):
     cama = Column(String(20))
     inicio = Column(String(40))    # "YYYY-MM-DD"
     termino = Column(String(40))   # "YYYY-MM-DD"
-    dia = Column(String(40))
+    dia = Column(String(40), index=True)  # guardaremos "YYYY-MM-DD"
     camas_ocupadas = Column(String(40))
     rut = Column(String(40), index=True)
     nombre = Column(Text)
@@ -109,7 +109,7 @@ class CardLogRow(Base):
     habitacion = Column(String(80), index=True)  # L1801-2...
     metodo_apertura_puerta = Column(Text)
     tipo_tarjeta = Column(String(80))
-    fecha = Column(Text)  # string original
+    fecha = Column(Text)  # string original (con hora)
     dueno_codigo = Column(String(80))
     dueno_nombre = Column(Text)
 
@@ -212,7 +212,22 @@ def validate_required(df: pd.DataFrame, required: set, label: str) -> list[str]:
     return []
 
 
+def parse_any_date_to_iso(value: str) -> str:
+    """Devuelve 'YYYY-MM-DD' o '' si no se puede."""
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    try:
+        dt = pd.to_datetime(s, errors="coerce", dayfirst=True)
+        if pd.isna(dt):
+            return ""
+        return dt.date().isoformat()
+    except Exception:
+        return ""
+
+
 def parse_log_datetime(value: str):
+    """Intenta parsear fecha+hora del log. Devuelve datetime o None."""
     if value is None:
         return None
     s = str(value).strip()
@@ -237,25 +252,12 @@ def clamp_int(x, default, lo, hi):
 
 
 def get_active_batch():
-    """Lote activo = último importado en sesión; si no, el más reciente en DB."""
     bid = session.get("last_batch_id")
     if bid:
         b = db_session.query(UploadBatch).filter_by(id=bid).first()
         if b:
             return b
     return db_session.query(UploadBatch).order_by(UploadBatch.created_at.desc()).first()
-
-
-def natural_key(s: str):
-    s = s or ""
-    parts = re.split(r"(\d+)", s)
-    out = []
-    for p in parts:
-        if p.isdigit():
-            out.append(int(p))
-        else:
-            out.append(p.lower())
-    return out
 
 
 # =========================================================
@@ -297,14 +299,17 @@ ROOMMAP_COLMAP = {
 
 def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, ONTRACKING_COLMAP)
+
     for c in ("RUT", "HABITACION", "MODULO"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
 
-    for c in ("INICIO", "TERMINO"):
+    # Normalizamos fechas a ISO para filtros confiables
+    for c in ("INICIO", "TERMINO", "DIA"):
         if c in df.columns:
             dt = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
             df[c] = dt.dt.date.astype(str).replace("NaT", "")
+
     return df
 
 
@@ -319,6 +324,7 @@ def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     for c in ("NRO_TARJETA", "NRO_HABITACION", "HABITACION"):
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
+
     return df
 
 
@@ -435,8 +441,7 @@ def importar():
         return redirect(url_for("importar"))
 
     try:
-        # Siempre creamos un nuevo lote (no mostramos tokens).
-        batch = UploadBatch(token=uuid4().hex)
+        batch = UploadBatch(token=uuid4().hex)  # no se muestra
         db_session.add(batch)
         db_session.flush()
 
@@ -463,7 +468,7 @@ def importar():
                     "cama": r.get("CAMA", ""),
                     "inicio": r.get("INICIO", ""),
                     "termino": r.get("TERMINO", ""),
-                    "dia": r.get("DIA", ""),
+                    "dia": r.get("DIA", ""),  # ahora ISO
                     "camas_ocupadas": r.get("CAMAS_OCUPADAS", ""),
                     "rut": r.get("RUT", ""),
                     "nombre": r.get("NOMBRE", ""),
@@ -488,10 +493,10 @@ def importar():
                     "batch_id": batch.id,
                     "nro_tarjeta": r.get("NRO_TARJETA", ""),
                     "nro_habitacion": r.get("NRO_HABITACION", ""),
-                    "habitacion": r.get("HABITACION", ""),
+                    "habitacion": r.get("HABITACION", ""),  # Lxxxx
                     "metodo_apertura_puerta": r.get("METODO_APERTURA_PUERTA", ""),
                     "tipo_tarjeta": r.get("TIPO_DE_TARJETA", ""),
-                    "fecha": r.get("FECHA", ""),
+                    "fecha": r.get("FECHA", ""),  # con hora
                     "dueno_codigo": r.get("DUENO_CODIGO", ""),
                     "dueno_nombre": r.get("DUENO_NOMBRE", ""),
                     "raw": r,
@@ -513,10 +518,10 @@ def importar():
             for r in df.to_dict(orient="records"):
                 rows.append({
                     "batch_id": batch.id,
-                    "habitacion": r.get("HABITACION", ""),
+                    "habitacion": r.get("HABITACION", ""),  # Sxxxx
                     "modulo": r.get("MODULO", ""),
                     "piso": r.get("PISO", ""),
-                    "hkeyplus": r.get("HKEYPLUS", ""),
+                    "hkeyplus": r.get("HKEYPLUS", ""),      # Lxxxx-2
                     "raw": r,
                 })
             if rows:
@@ -526,7 +531,7 @@ def importar():
         db_session.commit()
         session["last_batch_id"] = batch.id
         flash(f"Importación guardada: {', '.join(saved_sets)}", "success")
-        return redirect(url_for("preview"))
+        return redirect(url_for("conciliacion"))
 
     except Exception as ex:
         db_session.rollback()
@@ -535,151 +540,22 @@ def importar():
 
 
 # ----------------------------
-# PREVIEW (sin token)
+# CONCILIACIÓN SIMPLE (izquierda: Ontracking por DIA, derecha: logs de habitación)
 # ----------------------------
-@app.get("/preview")
-def preview():
-    batch = get_active_batch()
-    if not batch:
-        return render_template("preview.html", has_data=False)
-
-    tab = (request.args.get("tab") or "ontracking").strip().lower()
-    if tab not in ("ontracking", "log", "mapa"):
-        tab = "ontracking"
-
-    page = clamp_int(request.args.get("page"), default=1, lo=1, hi=10_000)
-    per_page = clamp_int(request.args.get("per_page"), default=25, lo=10, hi=200)
-
-    counts = {
-        "ontracking": db_session.query(func.count(OntrackingRow.id)).filter_by(batch_id=batch.id).scalar() or 0,
-        "log": db_session.query(func.count(CardLogRow.id)).filter_by(batch_id=batch.id).scalar() or 0,
-        "mapa": db_session.query(func.count(RoomMapRow.id)).filter_by(batch_id=batch.id).scalar() or 0,
-    }
-
-    columns_map = {
-        "ontracking": ["MODULO", "LUGAR", "HABITACION", "EMPRESA", "ID", "CAMA", "INICIO", "TERMINO",
-                       "DIA", "CAMAS_OCUPADAS", "RUT", "NOMBRE"],
-        "log": ["NRO_TARJETA", "NRO_HABITACION", "HABITACION", "METODO_APERTURA_PUERTA",
-                "TIPO_DE_TARJETA", "FECHA", "DUENO_CODIGO", "DUENO_NOMBRE"],
-        "mapa": ["HABITACION", "MODULO", "PISO", "HKEYPLUS"],
-    }
-
-    model_map = {"ontracking": OntrackingRow, "log": CardLogRow, "mapa": RoomMapRow}
-    model = model_map[tab]
-
-    total = counts[tab]
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = min(page, total_pages)
-    offset = (page - 1) * per_page
-
-    rows = (
-        db_session.query(model)
-        .filter_by(batch_id=batch.id)
-        .order_by(model.id.asc())
-        .offset(offset)
-        .limit(per_page)
-        .all()
-    )
-    raw_rows = [r.raw for r in rows]
-
-    return render_template(
-        "preview.html",
-        has_data=True,
-        created_at=batch.created_at,
-        tab=tab,
-        counts=counts,
-        columns=columns_map[tab],
-        rows=raw_rows,
-        page=page,
-        per_page=per_page,
-        total=total,
-        total_pages=total_pages,
-    )
-
-
-@app.get("/descargar/<dataset>.csv")
-def descargar_csv(dataset: str):
-    batch = get_active_batch()
-    if not batch:
-        abort(404)
-
-    model_map = {
-        "ocupacion": OntrackingRow,
-        "log_tarjetas": CardLogRow,
-        "map_habitaciones": RoomMapRow,
-    }
-    if dataset not in model_map:
-        abort(404)
-
-    model = model_map[dataset]
-    rows = (
-        db_session.query(model)
-        .filter_by(batch_id=batch.id)
-        .order_by(model.id.asc())
-        .all()
-    )
-    if not rows:
-        abort(404)
-
-    df = pd.DataFrame([r.raw for r in rows])
-    bio = BytesIO()
-    df.to_csv(bio, index=False, encoding="utf-8-sig")
-    bio.seek(0)
-
-    return send_file(
-        bio,
-        as_attachment=True,
-        download_name=f"{dataset}.csv",
-        mimetype="text/csv; charset=utf-8"
-    )
-
-
-# ----------------------------
-# CONCILIACIÓN (listado por habitación, comparativo)
-# ----------------------------
-def compute_conciliacion_all(batch_id: int, target: date):
-    dstr = target.isoformat()
-
-    # 1) Mapa
-    map_rows = (
-        db_session.query(RoomMapRow)
-        .filter_by(batch_id=batch_id)
-        .order_by(RoomMapRow.id.asc())
-        .all()
-    )
-
-    map_by_on = {}      # on_room -> info
-    map_by_hk = {}      # hk -> on_room
-    for m in map_rows:
-        on_room = (m.habitacion or "").strip()
-        hk = (m.hkeyplus or "").strip()
-        map_by_on[on_room] = {
-            "on_room": on_room,
-            "hk": hk,
-            "modulo": (m.modulo or "").strip(),
-            "piso": (m.piso or "").strip(),
-        }
-        if hk:
-            map_by_hk[hk] = on_room
-
-    # 2) Ontracking activo en fecha (inicio <= fecha <= termino)
-    on_active_rows = (
-        db_session.query(OntrackingRow)
-        .filter_by(batch_id=batch_id)
-        .filter(OntrackingRow.inicio != "")
-        .filter(OntrackingRow.termino != "")
-        .filter(OntrackingRow.inicio <= dstr)
-        .filter(OntrackingRow.termino >= dstr)
-        .order_by(OntrackingRow.id.asc())
-        .all()
-    )
-
-    on_by_room = {}
-    for r in on_active_rows:
+def build_map_on_to_hk(batch_id: int):
+    rows = db_session.query(RoomMapRow).filter_by(batch_id=batch_id).all()
+    on_to_hk = {}
+    on_meta = {}
+    for r in rows:
         on_room = (r.habitacion or "").strip()
-        on_by_room.setdefault(on_room, []).append(r)
+        hk = (r.hkeyplus or "").strip()
+        on_to_hk[on_room] = hk
+        on_meta[on_room] = {"modulo": (r.modulo or "").strip(), "piso": (r.piso or "").strip()}
+    return on_to_hk, on_meta
 
-    # 3) Logs del día (parseado)
+
+def logs_grouped_for_date(batch_id: int, target: date):
+    """Agrupa logs por habitación (código log) para una fecha, y guarda lista de eventos y nombres."""
     all_logs = (
         db_session.query(CardLogRow)
         .filter_by(batch_id=batch_id)
@@ -687,91 +563,38 @@ def compute_conciliacion_all(batch_id: int, target: date):
         .all()
     )
 
-    log_by_hk = {}
+    by_room = {}
     for r in all_logs:
         dt = parse_log_datetime(r.fecha)
         if not dt or dt.date() != target:
             continue
-        hk = (r.habitacion or "").strip()
-        log_by_hk.setdefault(hk, []).append((dt, r))
+        room = (r.habitacion or "").strip()
 
-    for hk in log_by_hk.keys():
-        log_by_hk[hk].sort(key=lambda x: x[0])
+        opener = (r.dueno_nombre or r.dueno_codigo or "").strip()
 
-    # 4) Construir entries por habitación
-    entries = []
-
-    # 4a) Habitaciones del mapa (principal)
-    for on_room, info in map_by_on.items():
-        hk = info["hk"]
-        on_list = on_by_room.get(on_room, [])
-        log_list = log_by_hk.get(hk, [])
-
-        ocupada = len(on_list) > 0
-        log_n = len(log_list)
-
-        if ocupada and log_n > 0:
-            status = "OK"
-        elif ocupada and log_n == 0:
-            status = "OCUPADA_SIN_LOG"
-        elif (not ocupada) and log_n > 0:
-            status = "LOG_SIN_OCUPACION"
-        else:
-            status = "SIN_MOVIMIENTOS"
-
-        entries.append({
-            "on_room": on_room,
-            "hk": hk,
-            "modulo": info["modulo"],
-            "piso": info["piso"],
-            "status": status,
-            "on_rows": on_list,
-            "log_rows": log_list,
+        by_room.setdefault(room, {"events": [], "openers": []})
+        by_room[room]["events"].append({
+            "hora": dt.strftime("%H:%M:%S"),
+            "nro_tarjeta": r.nro_tarjeta or "",
+            "opener": opener,
+            "metodo": (r.metodo_apertura_puerta or "").strip(),
         })
+        if opener:
+            by_room[room]["openers"].append(opener)
 
-    # 4b) Ontracking sin mapa
-    for on_room, on_list in on_by_room.items():
-        if on_room in map_by_on:
-            continue
-        entries.append({
-            "on_room": on_room,
-            "hk": "",
-            "modulo": "",
-            "piso": "",
-            "status": "SIN_MAPA",
-            "on_rows": on_list,
-            "log_rows": [],
-        })
+    # ordenar eventos por hora
+    for room in by_room.keys():
+        by_room[room]["events"].sort(key=lambda x: x["hora"])
 
-    # 4c) Logs sin mapa
-    for hk, log_list in log_by_hk.items():
-        if hk in map_by_hk:
-            continue
-        entries.append({
-            "on_room": "",
-            "hk": hk,
-            "modulo": "",
-            "piso": "",
-            "status": "SIN_MAPA",
-            "on_rows": [],
-            "log_rows": log_list,
-        })
+    # unique openers manteniendo orden
+    for room in by_room.keys():
+        uniq = []
+        for n in by_room[room]["openers"]:
+            if n not in uniq:
+                uniq.append(n)
+        by_room[room]["openers"] = uniq
 
-    # Orden
-    entries.sort(key=lambda e: (
-        natural_key(e.get("modulo", "")),
-        natural_key(e.get("piso", "")),
-        natural_key(e.get("on_room", "")),
-        natural_key(e.get("hk", "")),
-    ))
-
-    # Conteos de status
-    status_counts = {}
-    for e in entries:
-        s = e["status"]
-        status_counts[s] = status_counts.get(s, 0) + 1
-
-    return entries, status_counts
+    return by_room
 
 
 @app.get("/conciliacion")
@@ -781,10 +604,11 @@ def conciliacion():
         return render_template("conciliacion.html", has_data=False)
 
     date_str = (request.args.get("date") or "").strip()
+    selected_room = (request.args.get("room") or "").strip()
+
     page = clamp_int(request.args.get("page"), default=1, lo=1, hi=10_000)
     per_page = clamp_int(request.args.get("per_page"), default=25, lo=10, hi=200)
 
-    # Sin fecha -> solo form
     if not date_str:
         return render_template(
             "conciliacion.html",
@@ -800,73 +624,92 @@ def conciliacion():
         flash("Fecha inválida.", "danger")
         return redirect(url_for("conciliacion"))
 
-    entries, status_counts = compute_conciliacion_all(batch.id, target_date)
+    dstr = target_date.isoformat()
 
-    total = len(entries)
+    # 1) Ontracking por DIA (ya guardado como ISO)
+    q = (
+        db_session.query(OntrackingRow)
+        .filter_by(batch_id=batch.id)
+        .filter(OntrackingRow.dia == dstr)
+        .order_by(OntrackingRow.id.asc())
+    )
+
+    total = q.count()
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, total_pages)
-    start = (page - 1) * per_page
-    end = start + per_page
-    page_entries = entries[start:end]
+    rows = q.offset((page - 1) * per_page).limit(per_page).all()
 
-    # Preparar datos para template (convertir filas a dicts "simples")
-    def on_row_to_dict(r: OntrackingRow):
-        return {
-            "MODULO": r.modulo or "",
-            "LUGAR": r.lugar or "",
-            "HABITACION": r.habitacion or "",
-            "EMPRESA": r.empresa or "",
-            "CAMA": r.cama or "",
-            "RUT": r.rut or "",
-            "NOMBRE": r.nombre or "",
-            "INICIO": r.inicio or "",
-            "TERMINO": r.termino or "",
-        }
+    # 2) Mapa (Sxxxx -> Lxxxx)
+    on_to_hk, on_meta = build_map_on_to_hk(batch.id)
 
-    def log_row_to_dict(dt, r: CardLogRow):
-        return {
-            "HORA": dt.strftime("%H:%M:%S"),
-            "HABITACION": r.habitacion or "",
-            "NRO_TARJETA": r.nro_tarjeta or "",
-            "DUEÑO": (r.dueno_nombre or r.dueno_codigo or "").strip(),
-            "METODO": (r.metodo_apertura_puerta or "").strip(),
-        }
+    # 3) Logs del día agrupados por habitación log
+    logs_by_room = logs_grouped_for_date(batch.id, target_date)
 
-    rows_out = []
-    for idx, e in enumerate(page_entries, start=start + 1):
-        on_rows = [on_row_to_dict(r) for r in e["on_rows"]]
-        log_rows = [log_row_to_dict(dt, r) for (dt, r) in e["log_rows"]]
+    # 4) Construir tabla izquierda
+    table = []
+    for r in rows:
+        on_room = (r.habitacion or "").strip()
+        hk = on_to_hk.get(on_room, "")
+        meta = on_meta.get(on_room, {"modulo": (r.modulo or ""), "piso": ""})
+        loginfo = logs_by_room.get(hk, {"events": [], "openers": []})
 
-        # resumen para tabla
-        on_count = len(on_rows)
-        log_count = len(log_rows)
-        last_log_time = log_rows[-1]["HORA"] if log_count > 0 else ""
+        openers = loginfo.get("openers", [])
+        openers_text = ", ".join(openers) if openers else ""
 
-        # dueños (top 2)
-        owners = [x["DUEÑO"] for x in log_rows if x.get("DUEÑO")]
-        owners = [o for o in owners if o]
-        owners_unique = []
-        for o in owners:
-            if o not in owners_unique:
-                owners_unique.append(o)
-        owners_summary = " · ".join(owners_unique[:2])
-        if len(owners_unique) > 2:
-            owners_summary = f"{owners_summary} · +{len(owners_unique)-2}"
-
-        rows_out.append({
-            "row_id": idx,
-            "modulo": e.get("modulo", ""),
-            "piso": e.get("piso", ""),
-            "on_room": e.get("on_room", ""),
-            "hk": e.get("hk", ""),
-            "status": e.get("status", ""),
-            "on_count": on_count,
-            "log_count": log_count,
-            "last_log_time": last_log_time,
-            "owners_summary": owners_summary,
-            "on_rows": on_rows,
-            "log_rows": log_rows,
+        table.append({
+            "id": r.id,
+            "modulo": meta.get("modulo", r.modulo or ""),
+            "piso": meta.get("piso", ""),
+            "lugar": r.lugar or "",
+            "empresa": r.empresa or "",
+            "on_room": on_room,
+            "hk": hk,
+            "rut": r.rut or "",
+            "nombre": r.nombre or "",
+            "cama": r.cama or "",
+            "inicio": r.inicio or "",
+            "termino": r.termino or "",
+            "dia": r.dia or "",
+            "log_count": len(loginfo.get("events", [])),
+            "openers_text": openers_text,
         })
+
+    # 5) Panel derecho: detalle de logs para habitación seleccionada
+    detail = None
+    if selected_room:
+        # selected_room viene como Ontracking habitacion (Sxxxx)
+        hk = on_to_hk.get(selected_room, "")
+        meta = on_meta.get(selected_room, {"modulo": "", "piso": ""})
+
+        # ontracking detalle (puede haber más de 1 fila por cama)
+        on_detail_rows = (
+            db_session.query(OntrackingRow)
+            .filter_by(batch_id=batch.id)
+            .filter(OntrackingRow.dia == dstr)
+            .filter(OntrackingRow.habitacion == selected_room)
+            .order_by(OntrackingRow.id.asc())
+            .all()
+        )
+
+        loginfo = logs_by_room.get(hk, {"events": [], "openers": []})
+
+        detail = {
+            "on_room": selected_room,
+            "hk": hk,
+            "modulo": meta.get("modulo", ""),
+            "piso": meta.get("piso", ""),
+            "on_rows": [{
+                "empresa": x.empresa or "",
+                "cama": x.cama or "",
+                "rut": x.rut or "",
+                "nombre": x.nombre or "",
+                "inicio": x.inicio or "",
+                "termino": x.termino or "",
+                "dia": x.dia or "",
+            } for x in on_detail_rows],
+            "log_events": loginfo.get("events", []),
+            "openers": loginfo.get("openers", []),
+        }
 
     return render_template(
         "conciliacion.html",
@@ -874,12 +717,13 @@ def conciliacion():
         created_at=batch.created_at,
         has_run=True,
         date_str=date_str,
-        status_counts=status_counts,
-        rows=rows_out,
+        rows=table,
         page=page,
         per_page=per_page,
         total=total,
         total_pages=total_pages,
+        selected_room=selected_room,
+        detail=detail,
     )
 
 
