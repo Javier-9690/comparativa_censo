@@ -19,16 +19,27 @@
 
   <div class="filter-card mb-3">
     <form method="get" action="{{ url_for('conciliacion') }}" class="row g-2 align-items-end">
-      <div class="col-12 col-md-4">
-        <label class="form-label fw-semibold mb-1">Fecha (Ontracking: DIA / Log: FECHA)</label>
+      <div class="col-12 col-md-3">
+        <label class="form-label fw-semibold mb-1">Fecha</label>
         <input class="form-control" type="date" name="date" value="{{ date_str or '' }}">
       </div>
 
       <div class="col-12 col-md-4">
-        <label class="form-label fw-semibold mb-1">Habitaciones por página</label>
+        <label class="form-label fw-semibold mb-1">Vista</label>
+        <select class="form-select" name="mode">
+          <option value="ontracking" {% if (mode or '') == 'ontracking' %}selected{% endif %}>
+            Registro Ontracking (ocupantes vs aperturas)
+          </option>
+          <option value="aperturas" {% if (mode or '') == 'aperturas' %}selected{% endif %}>
+            Aperturas (aperturas vs registro Ontracking)
+          </option>
+        </select>
+      </div>
+
+      <div class="col-12 col-md-3">
+        <label class="form-label fw-semibold mb-1">Filas por página</label>
+        {% set pp = per_page or 50 %}
         <select class="form-select" name="per_page">
-          {% set pp = per_page or 25 %}
-          <option value="10"  {% if pp == 10 %}selected{% endif %}>10</option>
           <option value="25"  {% if pp == 25 %}selected{% endif %}>25</option>
           <option value="50"  {% if pp == 50 %}selected{% endif %}>50</option>
           <option value="100" {% if pp == 100 %}selected{% endif %}>100</option>
@@ -36,9 +47,10 @@
         </select>
       </div>
 
-      <div class="col-12 col-md-4 d-flex justify-content-end">
+      <div class="col-12 col-md-2 d-flex justify-content-end">
         <button class="btn btn-primary-custom w-100" type="submit">Ejecutar</button>
       </div>
+
       <input type="hidden" name="page" value="1">
     </form>
   </div>
@@ -47,93 +59,119 @@
     <div class="text-muted">Selecciona una fecha para comparar.</div>
   {% else %}
 
-    <div class="text-muted small mb-2">
-      Página {{ page }} / {{ total_pages }} · {{ total }} habitaciones (Ontracking DIA={{ date_str }})
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      <a class="btn btn-outline-primary btn-sm"
+         href="{{ url_for('conciliacion_export', date=date_str, view='ontracking') }}">
+        Exportar: Registro Ontracking
+      </a>
+
+      <a class="btn btn-outline-primary btn-sm"
+         href="{{ url_for('conciliacion_export', date=date_str, view='aperturas') }}">
+        Exportar: Aperturas
+      </a>
     </div>
 
-    {% if total == 0 %}
-      <div class="text-muted">No hay registros de Ontracking para esa fecha.</div>
-    {% else %}
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>HAB (Ontracking)</th>
-              <th>HAB (Log)</th>
-              <th>Total camas ocupadas</th>
-              <th>Ocupantes (Ontracking)</th>
-              <th>Aperturas (Log)</th>
-              <th>ESTADO</th>
-              <th># Logs</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for r in rows %}
-            <tr>
-              <td>{{ r.on_room }}</td>
-              <td>{{ r.hk }}</td>
-              <td>{{ r.total_camas }}</td>
+    <div class="text-muted small mb-2">
+      Página {{ page }} / {{ total_pages }} · {{ total }} registros
+    </div>
 
-              <td style="min-width:320px;">
-                {% if r.occupants and r.occupants|length > 0 %}
-                  <div class="small">
-                    {% for o in r.occupants %}
-                      <div>
-                        <span class="fw-semibold">{{ o.rut }}</span>
-                        · {{ o.nombre }}
-                        {% if o.cama %}<span class="text-muted"> ({{ o.cama }})</span>{% endif %}
-                      </div>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          {% if mode == 'ontracking' %}
+          <tr>
+            <th>HAB (Ontracking)</th>
+            <th>HAB (Log)</th>
+            <th>Total camas</th>
+            <th>Ocupantes (RUT · Nombre · Cama)</th>
+            <th>Aperturas</th>
+            <th>Estado</th>
+            <th>#</th>
+          </tr>
+          {% else %}
+          <tr>
+            <th>Fecha/Hora</th>
+            <th>Dueño apertura</th>
+            <th>HAB (Log)</th>
+            <th>HAB (Ontracking)</th>
+            <th>Ocupantes (Ontracking)</th>
+            <th>Total camas</th>
+            <th>Estado</th>
+          </tr>
+          {% endif %}
+        </thead>
 
-              <td style="min-width:360px;">
-                {% if r.logs and r.logs|length > 0 %}
-                  <div class="small">
-                    {% for e in r.logs %}
-                      <div>
-                        <span class="fw-semibold">{{ e.opener }}</span>
-                        — {{ e.fecha_ui }}
-                        {% if e.nro_tarjeta %}<span class="text-muted"> (Tarjeta: {{ e.nro_tarjeta }})</span>{% endif %}
-                      </div>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
+        <tbody>
+          {% for r in rows %}
+            {% if mode == 'ontracking' %}
+              <tr>
+                <td class="mono">{{ r.on_room }}</td>
+                <td class="mono">{{ r.hk }}</td>
+                <td class="mono">{{ r.total_camas }}</td>
 
-              <td>{{ r.status }}</td>
-              <td>{{ r.log_total }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+                <td>
+                  {% if r.ocupantes_text %}
+                    <div class="small">{{ r.ocupantes_text | replace('\n','<br>') | safe }}</div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
 
-      <nav class="mt-3">
-        <ul class="pagination pagination-sm mb-0">
-          <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link"
-               href="{{ url_for('conciliacion', date=date_str, per_page=per_page, page=page-1) }}">
-              Anterior
-            </a>
-          </li>
-          <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
-          <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link"
-               href="{{ url_for('conciliacion', date=date_str, per_page=per_page, page=page+1) }}">
-              Siguiente
-            </a>
-          </li>
-        </ul>
-      </nav>
-    {% endif %}
+                <td>
+                  {% if r.logs_text %}
+                    <div class="small">{{ r.logs_text | replace('\n','<br>') | safe }}</div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <td>{{ r.status }}</td>
+                <td class="mono">{{ r.log_total }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td class="mono">{{ r.fecha_ui }}</td>
+                <td>{{ r.opener }}</td>
+                <td class="mono">{{ r.hk }}</td>
+                <td class="mono">{{ r.on_room }}</td>
+
+                <td>
+                  {% if r.ocupantes_text %}
+                    <div class="small">{{ r.ocupantes_text | replace('\n','<br>') | safe }}</div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <td class="mono">{{ r.total_camas }}</td>
+                <td>{{ r.status }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', date=date_str, mode=mode, per_page=per_page, page=page-1) }}">
+            Anterior
+          </a>
+        </li>
+        <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', date=date_str, mode=mode, per_page=per_page, page=page+1) }}">
+            Siguiente
+          </a>
+        </li>
+      </ul>
+    </nav>
 
   {% endif %}
   {% endif %}
+
 </div>
 {% endblock %}
