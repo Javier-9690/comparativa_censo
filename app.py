@@ -81,15 +81,15 @@ class OntrackingRow(Base):
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
     modulo = Column(String(50))
-    lugar = Column(String(80), index=True)       # CLAVE mostrada (S1805)
-    habitacion = Column(String(80))              # se guarda si existe, no se usa para match
+    lugar = Column(String(80), index=True)       # CLAVE mostrada (Sxxxx / 10F01 etc)
+    habitacion = Column(String(80))
     empresa = Column(Text)
     ontracking_id = Column(String(80))
-    cama = Column(String(20))                    # P o V
+    cama = Column(String(20))                    # P / V (o similar)
     inicio = Column(String(40))                  # "YYYY-MM-DD"
     termino = Column(String(40))                 # "YYYY-MM-DD"
     dia = Column(String(40), index=True)         # "YYYY-MM-DD"
-    camas_ocupadas = Column(String(40))
+    camas_ocupadas = Column(String(40))          # viene del archivo
     rut = Column(String(40), index=True)
     nombre = Column(Text)
 
@@ -103,11 +103,11 @@ class CardLogRow(Base):
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
     nro_tarjeta = Column(String(50), index=True)
-    nro_habitacion = Column(String(80), index=True)  # 5400-M34 (si viene)
+    nro_habitacion = Column(String(80), index=True)
     habitacion = Column(String(80), index=True)      # DEBE QUEDAR L####-#
     metodo_apertura_puerta = Column(Text)
     tipo_tarjeta = Column(String(80))
-    fecha = Column(Text)                             # string original con hora (ideal)
+    fecha = Column(Text)                             # string con hora (ideal)
     dueno_codigo = Column(String(80))
     dueno_nombre = Column(Text)
 
@@ -120,10 +120,10 @@ class RoomMapRow(Base):
     id = Column(Integer, primary_key=True)
     batch_id = Column(Integer, ForeignKey("upload_batches.id"), nullable=False, index=True)
 
-    habitacion = Column(String(80), index=True)  # S1805
+    habitacion = Column(String(80), index=True)  # clave Ontracking (Sxxxx / 10F01 etc)
     modulo = Column(String(80), index=True)
     piso = Column(String(20))
-    hkeyplus = Column(String(80), index=True)    # L1805-2
+    hkeyplus = Column(String(80), index=True)    # clave log (L####-#)
 
     raw = Column(JSONB, nullable=False)
     batch = relationship("UploadBatch", back_populates="roommap_rows")
@@ -271,11 +271,10 @@ def get_active_batch():
 
 def normalize_on_key(value: str) -> str:
     """
-    Normaliza clave Ontracking/Mapa para que se vea como S#### si corresponde.
-    - 'S1805' -> 'S1805'
-    - '1805'  -> 'S1805'
-    - '29'    -> 'S0029'
-    - '2F29'  -> '2F29'
+    Normaliza clave Ontracking/Mapa.
+    Regla:
+    - Si viene "S####" o "####" -> "S####"
+    - Si viene "10F01" -> se deja igual (upper/trim)
     """
     s = str(value or "").strip().upper()
     if not s:
@@ -288,7 +287,7 @@ def normalize_on_key(value: str) -> str:
 
 
 def normalize_hk(value: str) -> str:
-    """Normaliza clave log HKEYPLUS/Lxxxx-2: trim+upper."""
+    """Normaliza clave log HKEYPLUS/L####-#: trim+upper."""
     return str(value or "").strip().upper()
 
 
@@ -303,7 +302,7 @@ def _hkey_score(series: pd.Series) -> float:
 def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
     """
     Detecta qué columna contiene más valores tipo L####-#.
-    Esto corrige casos donde te quedaba P1/P2 en 'HABITACION'.
+    Corrige casos donde se guardaba P1/P2 en HABITACION.
     """
     if df.empty:
         return None
@@ -329,6 +328,114 @@ def detect_log_hkey_column(df: pd.DataFrame) -> str | None:
     if best_col and best_score >= 0.15:
         return best_col
     return None
+
+
+def _format_dt_ui(dt: datetime) -> str:
+    # 19/12/2025 4:00:48 a.m.
+    d = dt.strftime("%d/%m/%Y")
+    h = dt.strftime("%I:%M:%S").lstrip("0")
+    ampm = dt.strftime("%p").lower()
+    ampm = "a.m." if ampm == "am" else "p.m."
+    return f"{d} {h} {ampm}"
+
+
+def _looks_like_datetime_text(s: str) -> bool:
+    s = (s or "").strip().lower()
+    return (":" in s) or ("am" in s) or ("pm" in s) or ("a.m" in s) or ("p.m" in s)
+
+
+def _pick_log_dt_best(row: CardLogRow):
+    """
+    Selecciona fecha/hora más confiable.
+    Caso común:
+    - FECHA viene con 00:00:00
+    - DUENO_CODIGO trae la hora real (por error de plantilla)
+    """
+    f = (row.fecha or "").strip()
+    dc = (row.dueno_codigo or "").strip()
+    dn = (row.dueno_nombre or "").strip()
+
+    dt_f = parse_log_datetime(f) if f else None
+    dt_dc = parse_log_datetime(dc) if dc else None
+    dt_dn = parse_log_datetime(dn) if dn else None
+
+    candidates = []
+    if dt_f:
+        score = 2 if (_looks_like_datetime_text(f) and dt_f.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_f))
+    if dt_dc:
+        score = 2 if (_looks_like_datetime_text(dc) and dt_dc.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_dc))
+    if dt_dn:
+        score = 2 if (_looks_like_datetime_text(dn) and dt_dn.time() != time(0, 0, 0)) else 1
+        candidates.append((score, dt_dn))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return candidates[0][1]
+
+
+def _pick_opener(row: CardLogRow) -> str:
+    dn = (row.dueno_nombre or "").strip()
+    dc = (row.dueno_codigo or "").strip()
+
+    # Si alguna columna se usó mal como fecha/hora, no la usamos como nombre
+    if dn and parse_log_datetime(dn) is None:
+        return dn
+    if dc and parse_log_datetime(dc) is None:
+        return dc
+    return dn or dc or "Sin dueño"
+
+
+def _to_int_safe(x: str) -> int | None:
+    s = str(x or "").strip()
+    if not s:
+        return None
+    if re.fullmatch(r"-?\d+", s):
+        try:
+            return int(s)
+        except Exception:
+            return None
+    return None
+
+
+def compute_total_camas_ocupadas(rows: list[OntrackingRow]) -> int:
+    """
+    Total camas ocupadas por habitación:
+    - Si CAMAS_OCUPADAS parece ser un total (mismo valor repetido y >= #ocupantes), usa ese.
+    - Si no, usa cantidad de ocupantes (filas) o cantidad de camas distintas si existe CAMA.
+    """
+    if not rows:
+        return 0
+
+    vals = []
+    for r in rows:
+        v = _to_int_safe(r.camas_ocupadas)
+        if v is not None:
+            vals.append(v)
+
+    # Heurística: valor único repetido y parece total
+    if vals:
+        if len(set(vals)) == 1:
+            v = vals[0]
+            if v >= len(rows):
+                return v
+        # si vienen valores por fila, sumamos (fallback)
+        s = sum(vals)
+        if s > 0:
+            return s
+
+    # fallback: camas distintas si viene P/V, si no, número de ocupantes
+    camas = set()
+    for r in rows:
+        c = (r.cama or "").strip().upper()
+        if c:
+            camas.add(c)
+    if camas:
+        return max(len(camas), len(rows)) if len(rows) > 1 else len(camas)
+    return len(rows)
 
 
 # =========================================================
@@ -394,18 +501,15 @@ def canonicalize_ontracking(df: pd.DataFrame) -> pd.DataFrame:
 def canonicalize_cardlog(df: pd.DataFrame) -> pd.DataFrame:
     df = rename_by_candidates(df, CARDLOG_COLMAP)
 
-    # dueños
     if "DUENO" in df.columns and "DUENO_2" in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO", "DUENO_2": "DUENO_NOMBRE"})
     elif "DUENO" in df.columns and "DUENO_CODIGO" not in df.columns:
         df = df.rename(columns={"DUENO": "DUENO_CODIGO"})
 
-    # detectar columna real de HKEY (L####-#)
     detected = detect_log_hkey_column(df)
     if detected:
         df["HABITACION"] = df[detected]
 
-    # normaliza
     if "HABITACION" in df.columns:
         df["HABITACION"] = df["HABITACION"].astype(str).apply(normalize_hk)
 
@@ -441,7 +545,7 @@ def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =========================================================
-# PLANTILLAS (con fila de ejemplo)
+# PLANTILLAS (con fila ejemplo)
 # =========================================================
 TEMPLATE_COLUMNS = {
     "ontracking": [
@@ -468,14 +572,14 @@ TEMPLATE_EXAMPLES = {
     "ontracking": {
         "MODULO": "2F",
         "LUGAR": "1805 (se convertirá a S1805)",
-        "HABITACION": "29",
+        "HABITACION": "",
         "EMPRESA": "BESALCO CONSTRUCCIONES SA",
         "ID": "GC072462",
         "CAMA": "P (o V)",
         "INICIO": "2025-12-05",
         "TERMINO": "2025-12-18",
         "DIA": "2025-12-18",
-        "CAMAS_OCUPADAS": "1",
+        "CAMAS_OCUPADAS": "2",
         "RUT": "17732409-4",
         "NOMBRE": "AARON VELIZ",
     },
@@ -486,7 +590,7 @@ TEMPLATE_EXAMPLES = {
         "METODO_APERTURA_PUERTA": "Tarjeta en línea-044273FA",
         "TIPO_DE_TARJETA": "-",
         "FECHA": "19/12/2025 4:00:48 a.m.",
-        "DUENO_CODIGO": "P1",
+        "DUENO_CODIGO": "P1 (si aquí viene fecha/hora, el sistema intentará corregir)",
         "DUENO_NOMBRE": "MAURICIO LOPEZ",
     },
     "mapa_habitaciones": {
@@ -502,7 +606,6 @@ def build_template_xlsx(template_key: str) -> BytesIO:
     cols = TEMPLATE_COLUMNS[template_key]
     sheet = TEMPLATE_SHEETS[template_key]
 
-    # 1 fila de ejemplo (tipo de dato)
     example = TEMPLATE_EXAMPLES.get(template_key, {})
     df = pd.DataFrame([{c: example.get(c, "") for c in cols}], columns=cols)
 
@@ -519,12 +622,11 @@ def build_template_xlsx(template_key: str) -> BytesIO:
             cell.font = header_font
             cell.alignment = header_alignment
 
-        # fila ejemplo en itálica
         for cell in ws[2]:
             cell.font = Font(italic=True)
 
         for i, col_name in enumerate(cols, start=1):
-            width = max(14, min(48, len(col_name) + 10))
+            width = max(14, min(56, len(col_name) + 12))
             ws.column_dimensions[get_column_letter(i)].width = width
 
     bio.seek(0)
@@ -588,7 +690,6 @@ def importar():
         return redirect(url_for("importar"))
 
     try:
-        # REUTILIZA BATCH ACTIVO. Si no hay, crea.
         batch = get_active_batch()
         if not batch:
             batch = UploadBatch(token=uuid4().hex)
@@ -614,7 +715,7 @@ def importar():
                 rows.append({
                     "batch_id": batch.id,
                     "modulo": r.get("MODULO", ""),
-                    "lugar": r.get("LUGAR", ""),          # S1805
+                    "lugar": r.get("LUGAR", ""),
                     "habitacion": r.get("HABITACION", ""),
                     "empresa": r.get("EMPRESA", ""),
                     "ontracking_id": r.get("ID", ""),
@@ -646,10 +747,10 @@ def importar():
             for r in df.to_dict(orient="records"):
                 rows.append({
                     "batch_id": batch.id,
-                    "habitacion": r.get("HABITACION", ""),  # Sxxxx
+                    "habitacion": r.get("HABITACION", ""),
                     "modulo": r.get("MODULO", ""),
                     "piso": r.get("PISO", ""),
-                    "hkeyplus": r.get("HKEYPLUS", ""),      # Lxxxx-2
+                    "hkeyplus": r.get("HKEYPLUS", ""),
                     "raw": r,
                 })
             if rows:
@@ -665,7 +766,6 @@ def importar():
                 db_session.rollback()
                 return redirect(url_for("importar"))
 
-            # advertencia si casi no hay L####-#
             match_rate = 0.0
             if "HABITACION" in df.columns:
                 s = df["HABITACION"].astype(str).str.strip().str.upper()
@@ -683,7 +783,7 @@ def importar():
                     "batch_id": batch.id,
                     "nro_tarjeta": r.get("NRO_TARJETA", ""),
                     "nro_habitacion": r.get("NRO_HABITACION", ""),
-                    "habitacion": r.get("HABITACION", ""),  # Lxxxx-2 (ya detectado)
+                    "habitacion": r.get("HABITACION", ""),
                     "metodo_apertura_puerta": r.get("METODO_APERTURA_PUERTA", ""),
                     "tipo_tarjeta": r.get("TIPO_DE_TARJETA", ""),
                     "fecha": r.get("FECHA", ""),
@@ -879,7 +979,6 @@ def admin_delete_log_date():
         logs = db_session.query(CardLogRow).filter_by(batch_id=batch.id).all()
         ids = []
         for r in logs:
-            # mismo criterio que conciliación (preferir timestamp con hora)
             dt = _pick_log_dt_best(r)
             if dt and dt.date() == target_date:
                 ids.append(r.id)
@@ -902,8 +1001,8 @@ def admin_delete_log_date():
 
 
 # =========================================================
-# CONCILIACIÓN
-# S1805 (Ontracking.LUGAR) -> Mapa.HABITACION -> Mapa.HKEYPLUS (L1805-2) -> Log.HABITACION
+# CONCILIACIÓN (por HABITACIÓN)
+#   Ontracking.LUGAR (Sxxxx/10F01) -> Mapa.HABITACION -> Mapa.HKEYPLUS (L####-#) -> Log.HABITACION
 # =========================================================
 def build_map_on_to_hk(batch_id: int):
     rows = db_session.query(RoomMapRow).filter_by(batch_id=batch_id).all()
@@ -916,102 +1015,10 @@ def build_map_on_to_hk(batch_id: int):
     return on_to_hk
 
 
-def _format_dt_ui(dt: datetime) -> str:
-    # "19/12/2025 4:00:48 a.m."
-    d = dt.strftime("%d/%m/%Y")
-    h = dt.strftime("%I:%M:%S").lstrip("0")  # 04 -> 4
-    ampm = dt.strftime("%p").lower()
-    ampm = "a.m." if ampm == "am" else "p.m."
-    return f"{d} {h} {ampm}"
-
-
-def _looks_like_datetime_text(s: str) -> bool:
-    s = (s or "").strip().lower()
-    return (":" in s) or ("am" in s) or ("pm" in s) or ("a.m" in s) or ("p.m" in s)
-
-
-def _pick_log_dt_best(row: CardLogRow):
+def logs_for_date_by_hk(batch_id: int, target: date):
     """
-    Devuelve el mejor datetime disponible para:
-    - filtrar por fecha
-    - mostrar hora real
-
-    Caso común tuyo:
-    - FECHA viene sin hora (00:00:00)
-    - DUENO_CODIGO trae la hora real
-    """
-    f = (row.fecha or "").strip()
-    dc = (row.dueno_codigo or "").strip()
-    dn = (row.dueno_nombre or "").strip()
-
-    dt_f = parse_log_datetime(f) if f else None
-    dt_dc = parse_log_datetime(dc) if dc else None
-    dt_dn = parse_log_datetime(dn) if dn else None
-
-    # preferimos el que tenga "hora real"
-    candidates = []
-    if dt_f:
-        score = 2 if (_looks_like_datetime_text(f) and dt_f.time() != time(0, 0, 0)) else 1
-        candidates.append((score, dt_f))
-    if dt_dc:
-        score = 2 if (_looks_like_datetime_text(dc) and dt_dc.time() != time(0, 0, 0)) else 1
-        candidates.append((score, dt_dc))
-    if dt_dn:
-        score = 2 if (_looks_like_datetime_text(dn) and dt_dn.time() != time(0, 0, 0)) else 1
-        candidates.append((score, dt_dn))
-
-    if not candidates:
-        return None
-
-    # score alto primero, y si empata, el más reciente
-    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return candidates[0][1]
-
-
-def _pick_opener(row: CardLogRow) -> str:
-    """
-    Preferimos un texto que NO sea fecha/hora.
-    """
-    dn = (row.dueno_nombre or "").strip()
-    dc = (row.dueno_codigo or "").strip()
-
-    if dn and parse_log_datetime(dn) is None:
-        return dn
-    if dc and parse_log_datetime(dc) is None:
-        return dc
-
-    return dn or dc or "Sin dueño"
-
-
-def build_first_row_id_by_room_for_day(batch_id: int, dstr: str) -> dict[str, int]:
-    """
-    Para no repetir logs por habitación cuando hay dos camas:
-    logs se muestran sólo en la primera fila de esa habitación.
-    """
-    rows = (db_session.query(OntrackingRow.id, OntrackingRow.lugar, OntrackingRow.cama)
-            .filter_by(batch_id=batch_id)
-            .filter(OntrackingRow.dia == dstr)
-            .order_by(OntrackingRow.lugar.asc(), OntrackingRow.cama.asc(), OntrackingRow.id.asc())
-            .all())
-
-    first_id = {}
-    for rid, lugar, _cama in rows:
-        room = normalize_on_key(lugar)
-        if not room:
-            continue
-        if room not in first_id:
-            first_id[room] = int(rid)
-    return first_id
-
-
-def logs_grouped_for_date(batch_id: int, target: date):
-    """
-    hk -> { total:int, display:[{opener, fecha_ui}] }
-
-    Reglas:
-    - Si hay 1 log: 1 línea
-    - Si hay >=2 logs: mostramos 2 líneas (idealmente dos nombres distintos si existen)
-    - El total real va en la columna #
+    hk -> {"total": int, "events": [ {opener, dt, fecha_ui, nro_tarjeta} ... ] }
+    Sin límite (todas las aperturas del día).
     """
     all_logs = (db_session.query(CardLogRow)
                 .filter_by(batch_id=batch_id)
@@ -1026,37 +1033,22 @@ def logs_grouped_for_date(batch_id: int, target: date):
 
         hk = normalize_hk(r.habitacion)
         opener = _pick_opener(r)
+        nro_tarjeta = (r.nro_tarjeta or "").strip()
 
         rec = tmp.setdefault(hk, {"total": 0, "events": []})
         rec["total"] += 1
         rec["events"].append({
-            "dt": dt,
             "opener": opener,
+            "dt": dt,
             "fecha_ui": _format_dt_ui(dt),
+            "nro_tarjeta": nro_tarjeta,
         })
 
+    # ordena por hora asc para lectura tipo bitácora
     out = {}
     for hk, rec in tmp.items():
-        events = sorted(rec["events"], key=lambda x: x["dt"], reverse=True)
-
-        display = []
-        if len(events) >= 1:
-            display.append(events[0])
-
-        if len(events) >= 2:
-            # segunda línea: preferimos nombre distinto si existe
-            first_name = events[0]["opener"]
-            second = None
-            for e in events[1:]:
-                if e["opener"] != first_name:
-                    second = e
-                    break
-            if second is None:
-                second = events[1]
-            display.append(second)
-
-        out[hk] = {"total": int(rec["total"]), "display": display[:2]}
-
+        events = sorted(rec["events"], key=lambda x: x["dt"])
+        out[hk] = {"total": int(rec["total"]), "events": events}
     return out
 
 
@@ -1087,57 +1079,74 @@ def conciliacion():
 
     dstr = target_date.isoformat()
 
-    # UNA FILA POR REGISTRO Ontracking (separando P y V)
-    q = (db_session.query(OntrackingRow)
-         .filter_by(batch_id=batch.id)
-         .filter(OntrackingRow.dia == dstr)
-         .order_by(OntrackingRow.lugar.asc(), OntrackingRow.cama.asc(), OntrackingRow.id.asc()))
+    # 1) Trae Ontracking del día completo
+    on_rows = (db_session.query(OntrackingRow)
+               .filter_by(batch_id=batch.id)
+               .filter(OntrackingRow.dia == dstr)
+               .order_by(OntrackingRow.lugar.asc(), OntrackingRow.cama.asc(), OntrackingRow.id.asc())
+               .all())
 
-    total = q.count()
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = min(page, total_pages)
-    on_rows = q.offset((page - 1) * per_page).limit(per_page).all()
-
-    on_to_hk = build_map_on_to_hk(batch.id)
-    logs_by_hk = logs_grouped_for_date(batch.id, target_date)
-    first_row_id_by_room = build_first_row_id_by_room_for_day(batch.id, dstr)
-
-    rows_out = []
+    # 2) Agrupa por habitación (Ontracking key)
+    by_room = {}
     for r in on_rows:
-        on_room = normalize_on_key(r.lugar)  # Sxxxx
-        hk = on_to_hk.get(on_room, "")       # Lxxxx-#
-        cama = (r.cama or "").strip().upper()
+        room = normalize_on_key(r.lugar)
+        if not room:
+            continue
+        by_room.setdefault(room, []).append(r)
 
-        status = "Sin mapa" if not hk else "Sin log"
-        aperturas = []
-        log_count = 0
+    rooms_sorted = sorted(by_room.keys())
 
-        if hk:
+    # 3) Paginación por habitaciones (no por filas)
+    total_rooms = len(rooms_sorted)
+    total_pages = max(1, (total_rooms + per_page - 1) // per_page)
+    page = min(page, total_pages)
+
+    page_rooms = rooms_sorted[(page - 1) * per_page: (page - 1) * per_page + per_page]
+
+    # 4) Mapa y logs del día
+    on_to_hk = build_map_on_to_hk(batch.id)
+    logs_by_hk = logs_for_date_by_hk(batch.id, target_date)
+
+    # 5) Construye salida: 1 fila por habitación con TODOS ocupantes y TODOS logs
+    rows_out = []
+    for room in page_rooms:
+        occupants = by_room.get(room, [])
+        hk = on_to_hk.get(room, "")
+
+        total_camas = compute_total_camas_ocupadas(occupants)
+
+        occ_list = []
+        for o in occupants:
+            occ_list.append({
+                "cama": (o.cama or "").strip().upper(),
+                "rut": (o.rut or "").strip(),
+                "nombre": (o.nombre or "").strip(),
+                "empresa": (o.empresa or "").strip(),
+            })
+
+        if not hk:
+            status = "Sin mapa"
+            logs_list = []
+            log_total = 0
+        else:
             info = logs_by_hk.get(hk)
-            if info:
+            if not info:
+                status = "Sin log"
+                logs_list = []
+                log_total = 0
+            else:
                 status = "OK"
-
-                # logs SOLO en la primera fila de esa habitación (para no repetir)
-                if int(r.id) == int(first_row_id_by_room.get(on_room, r.id)):
-                    log_count = int(info["total"])
-                    for e in info["display"]:
-                        aperturas.append(f"{e['opener']} — {e['fecha_ui']}")
-                else:
-                    log_count = None
-                    aperturas = None
+                logs_list = info["events"]
+                log_total = info["total"]
 
         rows_out.append({
-            "on_room": on_room,
+            "on_room": room,
             "hk": hk,
-            "cama": cama,
-            "rut": (r.rut or "").strip(),
-            "nombre": (r.nombre or "").strip(),
-            "empresa": (r.empresa or "").strip(),
-            "inicio": (r.inicio or "").strip(),
-            "termino": (r.termino or "").strip(),
+            "total_camas": total_camas,
+            "occupants": occ_list,
+            "logs": logs_list,
             "status": status,
-            "aperturas": aperturas,
-            "log_count": log_count,
+            "log_total": log_total,
         })
 
     return render_template(
@@ -1149,7 +1158,7 @@ def conciliacion():
         rows=rows_out,
         page=page,
         per_page=per_page,
-        total=total,
+        total=total_rooms,
         total_pages=total_pages,
     )
 
