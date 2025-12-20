@@ -137,7 +137,6 @@ def shutdown_session(exception=None):
     db_session.remove()
 
 
-# Crea tablas si no existen
 init_db()
 
 # ----------------------------
@@ -208,7 +207,7 @@ def rename_by_candidates(df: pd.DataFrame, candidates_map: dict[str, list[str]])
 def validate_required(df: pd.DataFrame, required: set, label: str) -> list[str]:
     missing = [c for c in sorted(required) if c not in df.columns]
     if missing:
-        return [f"{label}: faltan columnas requeridas: {', '.join(missing)}"]
+        return [f"{label}: faltan columnas: {', '.join(missing)}"]
     return []
 
 
@@ -299,7 +298,7 @@ def canonicalize_roommap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------------------
-# Plantillas Excel (descarga)
+# Plantillas Excel
 # ----------------------------
 TEMPLATE_COLUMNS = {
     "ontracking": [
@@ -345,7 +344,7 @@ def build_template_xlsx(template_key: str) -> BytesIO:
             cell.alignment = header_alignment
 
         for i, col_name in enumerate(cols, start=1):
-            width = max(16, min(45, len(col_name) + 2))
+            width = max(14, min(42, len(col_name) + 2))
             ws.column_dimensions[get_column_letter(i)].width = width
 
     bio.seek(0)
@@ -353,7 +352,7 @@ def build_template_xlsx(template_key: str) -> BytesIO:
 
 
 # ----------------------------
-# Context processor (footer)
+# Context processor
 # ----------------------------
 @app.context_processor
 def inject_now():
@@ -373,9 +372,9 @@ def index():
     return redirect(url_for("importar"))
 
 
-# Compatibilidad (si tenías /plantillas antes)
 @app.get("/plantillas")
 def plantillas_redirect():
+    # Compatibilidad si alguien entra a /plantillas
     return redirect(url_for("importar"))
 
 
@@ -398,50 +397,45 @@ def descargar_plantilla(template_key: str):
 @app.route("/importar", methods=["GET", "POST"])
 def importar():
     if request.method == "GET":
-        last_token = session.get("last_token")
-        return render_template("importar.html", last_token=last_token)
+        return render_template("importar.html", last_token=session.get("last_token"))
 
-    # token opcional para completar un lote existente
     token_in = (request.form.get("batch_token") or "").strip()
 
     f_ocup = request.files.get("excel_ocupacion")
     f_log = request.files.get("excel_log_tarjetas")
     f_map = request.files.get("excel_mapa_habitaciones")
 
-    # Determinar qué archivos llegaron realmente
     has_ocup = bool(f_ocup and (f_ocup.filename or "").strip())
     has_log = bool(f_log and (f_log.filename or "").strip())
     has_map = bool(f_map and (f_map.filename or "").strip())
 
     if not (has_ocup or has_log or has_map):
-        flash("Debes subir al menos 1 archivo Excel (puedes subir 1, 2 o 3).", "danger")
+        flash("Debes subir al menos 1 archivo.", "danger")
         return redirect(url_for("importar"))
 
     try:
-        # Selección/creación de batch
+        # Batch: usar token existente o crear nuevo
         if token_in:
             batch = db_session.query(UploadBatch).filter_by(token=token_in).first()
             if not batch:
-                flash("El token indicado no existe. Revisa el token o deja el campo vacío para crear un lote nuevo.", "danger")
+                flash("Token no válido.", "danger")
                 return redirect(url_for("importar"))
             token = batch.token
         else:
             token = uuid4().hex
             batch = UploadBatch(token=token)
             db_session.add(batch)
-            db_session.flush()  # obtiene batch.id
+            db_session.flush()
 
         saved_sets = []
 
-        # --- Ontracking ---
+        # Ontracking
         if has_ocup:
-            df_ocup = read_excel_upload(f_ocup)
-            df_ocup = canonicalize_ontracking(df_ocup)
-
+            df_ocup = canonicalize_ontracking(read_excel_upload(f_ocup))
             errors = validate_required(
                 df_ocup,
                 required={"MODULO", "LUGAR", "HABITACION", "RUT", "NOMBRE"},
-                label="Ocupación (Ontracking)"
+                label="Ontracking"
             )
             if errors:
                 for e in errors:
@@ -449,13 +443,11 @@ def importar():
                 db_session.rollback()
                 return redirect(url_for("importar"))
 
-            # si estamos “completando” o re-subiendo, reemplazamos el set
             db_session.query(OntrackingRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
-            ocup_records = df_ocup.to_dict(orient="records")
-            ocup_rows = []
-            for r in ocup_records:
-                ocup_rows.append({
+            rows = []
+            for r in df_ocup.to_dict(orient="records"):
+                rows.append({
                     "batch_id": batch.id,
                     "modulo": r.get("MODULO", ""),
                     "lugar": r.get("LUGAR", ""),
@@ -471,19 +463,17 @@ def importar():
                     "nombre": r.get("NOMBRE", ""),
                     "raw": r,
                 })
-            if ocup_rows:
-                db_session.bulk_insert_mappings(OntrackingRow, ocup_rows)
+            if rows:
+                db_session.bulk_insert_mappings(OntrackingRow, rows)
             saved_sets.append("Ontracking")
 
-        # --- Log Tarjetas ---
+        # Log Tarjetas
         if has_log:
-            df_log = read_excel_upload(f_log)
-            df_log = canonicalize_cardlog(df_log)
-
+            df_log = canonicalize_cardlog(read_excel_upload(f_log))
             errors = validate_required(
                 df_log,
                 required={"NRO_TARJETA", "NRO_HABITACION", "HABITACION", "FECHA"},
-                label="Log de Tarjetas"
+                label="Log Tarjetas"
             )
             if errors:
                 for e in errors:
@@ -493,10 +483,9 @@ def importar():
 
             db_session.query(CardLogRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
-            log_records = df_log.to_dict(orient="records")
-            log_rows = []
-            for r in log_records:
-                log_rows.append({
+            rows = []
+            for r in df_log.to_dict(orient="records"):
+                rows.append({
                     "batch_id": batch.id,
                     "nro_tarjeta": r.get("NRO_TARJETA", ""),
                     "nro_habitacion": r.get("NRO_HABITACION", ""),
@@ -508,15 +497,13 @@ def importar():
                     "dueno_nombre": r.get("DUENO_NOMBRE", ""),
                     "raw": r,
                 })
-            if log_rows:
-                db_session.bulk_insert_mappings(CardLogRow, log_rows)
+            if rows:
+                db_session.bulk_insert_mappings(CardLogRow, rows)
             saved_sets.append("Log Tarjetas")
 
-        # --- Mapa Habitaciones ---
+        # Mapa Habitaciones
         if has_map:
-            df_map = read_excel_upload(f_map)
-            df_map = canonicalize_roommap(df_map)
-
+            df_map = canonicalize_roommap(read_excel_upload(f_map))
             errors = validate_required(
                 df_map,
                 required={"HABITACION", "MODULO", "PISO", "HKEYPLUS"},
@@ -530,10 +517,9 @@ def importar():
 
             db_session.query(RoomMapRow).filter_by(batch_id=batch.id).delete(synchronize_session=False)
 
-            map_records = df_map.to_dict(orient="records")
-            map_rows = []
-            for r in map_records:
-                map_rows.append({
+            rows = []
+            for r in df_map.to_dict(orient="records"):
+                rows.append({
                     "batch_id": batch.id,
                     "habitacion": r.get("HABITACION", ""),
                     "modulo": r.get("MODULO", ""),
@@ -541,23 +527,19 @@ def importar():
                     "hkeyplus": r.get("HKEYPLUS", ""),
                     "raw": r,
                 })
-            if map_rows:
-                db_session.bulk_insert_mappings(RoomMapRow, map_rows)
-            saved_sets.append("Mapa Habitaciones")
+            if rows:
+                db_session.bulk_insert_mappings(RoomMapRow, rows)
+            saved_sets.append("Mapa")
 
         db_session.commit()
         session["last_token"] = token
 
-        if token_in:
-            flash(f"Lote actualizado: {token}. Guardado: {', '.join(saved_sets)}.", "success")
-        else:
-            flash(f"Lote creado: {token}. Guardado: {', '.join(saved_sets)}.", "success")
-
+        flash(f"Guardado: {', '.join(saved_sets)} · Token: {token}", "success")
         return redirect(url_for("preview", token=token))
 
     except Exception as ex:
         db_session.rollback()
-        flash(f"Error al importar: {ex}", "danger")
+        flash(f"Error: {ex}", "danger")
         return redirect(url_for("importar"))
 
 
@@ -565,10 +547,10 @@ def importar():
 def preview(token: str):
     batch = db_session.query(UploadBatch).filter_by(token=token).first()
     if not batch:
-        flash("No se encontró ese lote en la base de datos.", "warning")
+        flash("No se encontró ese token.", "warning")
         return redirect(url_for("importar"))
 
-    def fetch_raw(model, limit=15):
+    def fetch_raw(model, limit=10):
         rows = (
             db_session.query(model)
             .filter_by(batch_id=batch.id)
@@ -578,9 +560,9 @@ def preview(token: str):
         )
         return [r.raw for r in rows]
 
-    ocup_rows = fetch_raw(OntrackingRow)
-    log_rows = fetch_raw(CardLogRow)
-    map_rows = fetch_raw(RoomMapRow)
+    ocup_rows = fetch_raw(OntrackingRow, 10)
+    log_rows = fetch_raw(CardLogRow, 10)
+    map_rows = fetch_raw(RoomMapRow, 10)
 
     ocup_n = db_session.query(func.count(OntrackingRow.id)).filter_by(batch_id=batch.id).scalar() or 0
     log_n = db_session.query(func.count(CardLogRow.id)).filter_by(batch_id=batch.id).scalar() or 0
@@ -626,8 +608,7 @@ def descargar_csv(token: str, dataset: str):
     if not rows:
         abort(404)
 
-    raw_list = [r.raw for r in rows]
-    df = pd.DataFrame(raw_list)
+    df = pd.DataFrame([r.raw for r in rows])
 
     bio = BytesIO()
     df.to_csv(bio, index=False, encoding="utf-8-sig")
