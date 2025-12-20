@@ -3,21 +3,12 @@
 
 {% block content %}
 <div class="content-container">
-  <div class="page-title">Conciliación</div>
+  <div class="page-title mb-2">Conciliación</div>
 
-  <div class="alert alert-info">
-    Esta sección queda lista para implementar el match (equivalencias + ventanas de fechas).
-    {% if token %}
-      <div class="mt-2">
-        Último token en sesión: <span class="fw-semibold">{{ token }}</span>
-      </div>
-    {% endif %}
-  </div>
-
-  <ul class="mb-0">
-    <li>Match de habitaciones vía mapa (HABITACION ⇄ HKEYPLUS ⇄ nomenclatura del log).</li>
-    <li>Cruce ocupación vs log de tarjetas (por habitación y rango INICIO/TERMINO).</li>
-    <li>Salida: tabla final + exportable.</li>
-  </ul>
+  {% if token %}
+    <div class="text-muted small">Token en sesión: <span class="fw-semibold">{{ token }}</span></div>
+  {% else %}
+    <div class="text-muted small">Sin token en sesión.</div>
+  {% endif %}
 </div>
 {% endblock %}
