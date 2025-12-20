@@ -23,10 +23,22 @@
       --light-bg: #f3f4f6;
       --border-color: #dee2e6;
     }
+
+    /* Sticky footer */
+    html, body { height: 100%; }
+
     body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+
       background-color: var(--light-bg);
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
     }
+
+    .main-wrapper { flex: 1 0 auto; }
+    .footer { flex-shrink: 0; }
+
     .system-header { background: var(--primary-color); color:#fff; padding: .75rem 0; }
     .system-title h1 { font-size: 1.6rem; margin:0; font-weight:600; }
     .system-title p { margin:0; font-size:.95rem; opacity:.9; }
@@ -49,8 +61,7 @@
     .btn-primary-custom { background-color: var(--primary-color); border-color: var(--primary-color); color:#fff; }
     .btn-primary-custom:hover { background-color:#1d3d80; border-color:#1d3d80; color:#fff; }
 
-    .footer { background: var(--secondary-color); color:#fff; padding:1.1rem 0; margin-top:1.5rem; font-size:.9rem; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .footer { background: var(--secondary-color); color:#fff; padding:1.1rem 0; font-size:.9rem; }
   </style>
 
   {% block extra_head %}{% endblock %}
@@ -85,7 +96,6 @@
 
     <div class="collapse navbar-collapse" id="topNav">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-
         <li class="nav-item">
           <a class="nav-link {% if request.endpoint == 'importar' %}active{% endif %}"
              href="{{ url_for('importar') }}">
@@ -101,18 +111,17 @@
         </li>
 
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint in ['conciliacion', 'conciliacion_export'] %}active{% endif %}"
+          <a class="nav-link {% if request.endpoint == 'conciliacion' %}active{% endif %}"
              href="{{ url_for('conciliacion') }}">
             <i class="fa-solid fa-link"></i> Conciliación
           </a>
         </li>
-
       </ul>
     </div>
   </div>
 </nav>
 
-<main class="container-fluid px-4">
+<main class="container-fluid px-4 main-wrapper">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, m in messages %}
