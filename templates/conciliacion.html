@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Conciliación · Sistema de gestión de tarjetas{% endblock %}
+
+{% block content %}
+<div class="content-container">
+
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <div class="page-title mb-0">Conciliación</div>
+      <div class="text-muted small">Comparativa por fecha (Ontracking vs Log) usando Mapa.</div>
+    </div>
+  </div>
+
+  <div class="filter-card mb-3">
+    <form method="get" action="{{ url_for('conciliacion') }}" class="row g-2 align-items-end">
+
+      <div class="col-12 col-md-4">
+        <label class="form-label fw-semibold mb-1">Fecha</label>
+        <input class="form-control" type="date" name="date" value="{{ date_str }}">
+      </div>
+
+      <div class="col-12 col-md-6">
+        <label class="form-label fw-semibold mb-1">Token</label>
+        <input class="form-control" type="text" name="token" value="{{ token }}" placeholder="Token del lote">
+      </div>
+
+      <div class="col-12 col-md-2 d-flex justify-content-end">
+        <button class="btn btn-primary-custom w-100" type="submit">
+          <i class="fa-solid fa-play me-1"></i> Ejecutar
+        </button>
+      </div>
+
+    </form>
+  </div>
+
+  {% if not has_run %}
+    <div class="text-muted">Selecciona fecha y ejecuta.</div>
+  {% else %}
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+      <div class="text-muted small">
+        Página {{ page }} / {{ total_pages }} · {{ total }} habitaciones
+      </div>
+
+      <a class="btn btn-outline-primary btn-sm"
+         href="{{ url_for('conciliacion_export', token=token, date=date_str) }}">
+        <i class="fa-solid fa-download me-1"></i> CSV
+      </a>
+    </div>
+
+    <div class="mb-2">
+      {% for k, v in status_counts.items() %}
+        <span class="badge text-bg-light border me-1">{{ k }}: {{ v }}</span>
+      {% endfor %}
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>HABITACION (Ontracking)</th>
+            <th>HABITACION (Log)</th>
+            <th>MODULO</th>
+            <th>PISO</th>
+            <th>OCUPADA</th>
+            <th>OCUPANTES</th>
+            <th>LOG #</th>
+            <th>LOG ÚLTIMO</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.habitacion_ontracking }}</td>
+            <td>{{ r.habitacion_log }}</td>
+            <td>{{ r.modulo }}</td>
+            <td>{{ r.piso }}</td>
+            <td>{{ r.ocupada }}</td>
+            <td>{{ r.ocupantes }}</td>
+            <td>{{ r.log_eventos }}</td>
+            <td>{{ r.log_ultimo }}</td>
+            <td>
+              {% set s = r.status %}
+              {% if s == 'OK' %}
+                <span class="badge text-bg-success">OK</span>
+              {% elif s == 'OCUPADA_SIN_LOG' %}
+                <span class="badge text-bg-warning">OCUPADA_SIN_LOG</span>
+              {% elif s == 'LOG_SIN_OCUPACION' %}
+                <span class="badge text-bg-danger">LOG_SIN_OCUPACION</span>
+              {% elif s == 'SIN_MAPA' %}
+                <span class="badge text-bg-secondary">SIN_MAPA</span>
+              {% else %}
+                <span class="badge text-bg-light border">SIN_MOVIMIENTOS</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', token=token, date=date_str, page=page-1, per_page=per_page) }}">Anterior</a>
+        </li>
+        <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('conciliacion', token=token, date=date_str, page=page+1, per_page=per_page) }}">Siguiente</a>
+        </li>
+      </ul>
+    </nav>
+  {% endif %}
+
+</div>
+{% endblock %}
