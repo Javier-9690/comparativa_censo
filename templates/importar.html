@@ -7,7 +7,7 @@
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <div>
       <div class="page-title mb-0">Carga</div>
-      <div class="text-muted small">Plantillas y subida de archivos.</div>
+      <div class="text-muted small">Plantillas y subida.</div>
     </div>
 
     {% if last_token %}
@@ -20,7 +20,6 @@
     {% endif %}
   </div>
 
-  <!-- Plantillas (solo botones) -->
   <div class="filter-card mb-3">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
       <div class="fw-semibold">Plantillas</div>
@@ -38,7 +37,6 @@
     </div>
   </div>
 
-  <!-- Subida (solo lo necesario) -->
   <div class="filter-card">
     <form method="post" enctype="multipart/form-data" class="row g-3">
 
@@ -47,10 +45,9 @@
                 data-bs-toggle="collapse" data-bs-target="#tokenBox" aria-expanded="false">
           <i class="fa-solid fa-key me-1"></i> Token (opcional)
         </button>
-
         <div class="collapse mt-2" id="tokenBox">
           <input class="form-control" type="text" name="batch_token"
-                 placeholder="Pegar token para completar/reemplazar un lote">
+                 placeholder="Pegar token para completar/reemplazar lote">
         </div>
       </div>
 
