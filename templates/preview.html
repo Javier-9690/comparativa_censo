@@ -83,15 +83,15 @@
         <thead>
           {% if tab=='ontracking' %}
           <tr>
-            <th>ID</th><th>DIA</th><th>LUGAR (Sxxxx)</th><th>RUT</th><th>NOMBRE</th><th>EMPRESA</th><th>INICIO</th><th>TERMINO</th><th></th>
+            <th>ID</th><th>DIA</th><th>LUGAR (S####)</th><th>CAMA (P/V)</th><th>RUT</th><th>NOMBRE</th><th>EMPRESA</th><th>INICIO</th><th>TÉRMINO</th><th></th>
           </tr>
           {% elif tab=='log' %}
           <tr>
-            <th>ID</th><th>FECHA</th><th>HAB (L####-#)</th><th>DUEÑO</th><th>NRO TARJETA</th><th></th>
+            <th>ID</th><th>FECHA (original)</th><th>HAB (L####-#)</th><th>DUEÑO</th><th>NRO TARJETA</th><th></th>
           </tr>
           {% else %}
           <tr>
-            <th>ID</th><th>HAB (Sxxxx)</th><th>HKEYPLUS (L####-#)</th><th>MODULO</th><th>PISO</th><th></th>
+            <th>ID</th><th>HAB (S####)</th><th>HKEYPLUS (L####-#)</th><th>MODULO</th><th>PISO</th><th></th>
           </tr>
           {% endif %}
         </thead>
@@ -99,11 +99,27 @@
           {% for r in rows %}
             <tr>
               {% if tab=='ontracking' %}
-                <td>{{ r.id }}</td><td>{{ r.dia }}</td><td>{{ r.lugar }}</td><td>{{ r.rut }}</td><td>{{ r.nombre }}</td><td>{{ r.empresa }}</td><td>{{ r.inicio }}</td><td>{{ r.termino }}</td>
+                <td>{{ r.id }}</td>
+                <td>{{ r.dia }}</td>
+                <td>{{ r.lugar }}</td>
+                <td>{{ cama_pv(r.cama) }}</td>
+                <td>{{ r.rut }}</td>
+                <td>{{ r.nombre }}</td>
+                <td>{{ r.empresa }}</td>
+                <td>{{ r.inicio }}</td>
+                <td>{{ r.termino }}</td>
               {% elif tab=='log' %}
-                <td>{{ r.id }}</td><td>{{ r.fecha }}</td><td>{{ r.habitacion }}</td><td>{{ r.dueno_nombre or r.dueno_codigo }}</td><td>{{ r.nro_tarjeta }}</td>
+                <td>{{ r.id }}</td>
+                <td>{{ r.fecha }}</td>
+                <td>{{ r.habitacion }}</td>
+                <td>{{ r.dueno_nombre or r.dueno_codigo }}</td>
+                <td>{{ r.nro_tarjeta }}</td>
               {% else %}
-                <td>{{ r.id }}</td><td>{{ r.habitacion }}</td><td>{{ r.hkeyplus }}</td><td>{{ r.modulo }}</td><td>{{ r.piso }}</td>
+                <td>{{ r.id }}</td>
+                <td>{{ r.habitacion }}</td>
+                <td>{{ r.hkeyplus }}</td>
+                <td>{{ r.modulo }}</td>
+                <td>{{ r.piso }}</td>
               {% endif %}
 
               <td style="width:1%; white-space:nowrap;">
