@@ -50,6 +50,7 @@
     .btn-primary-custom:hover { background-color:#1d3d80; border-color:#1d3d80; color:#fff; }
 
     .footer { background: var(--secondary-color); color:#fff; padding:1.1rem 0; margin-top:1.5rem; font-size:.9rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 
   {% block extra_head %}{% endblock %}
@@ -101,7 +102,7 @@
         </li>
 
         <li class="nav-item">
-          <a class="nav-link {% if request.endpoint == 'conciliacion' %}active{% endif %}"
+          <a class="nav-link {% if request.endpoint in ['conciliacion', 'conciliacion_export'] %}active{% endif %}"
              href="{{ url_for('conciliacion') }}">
             <i class="fa-solid fa-link"></i> Conciliación
           </a>
