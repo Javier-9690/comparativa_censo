@@ -1,51 +1,173 @@
 {% extends "base.html" %}
-{% block title %}Carga · Sistema de gestión{% endblock %}
+{% block title %}Preview · Sistema de gestión{% endblock %}
 
 {% block content %}
 <div class="content-container">
-
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
     <div>
-      <div class="page-title mb-0">Carga</div>
-      <div class="text-muted small">
-        {% if last_dt %}Última carga: {{ last_dt }}{% else %}Sin cargas aún.{% endif %}
-      </div>
+      <div class="page-title mb-0">Preview</div>
+      {% if has_data %}
+        <div class="text-muted small">Lote activo: {{ created_at }}</div>
+      {% endif %}
     </div>
-  </div>
 
-  <div class="filter-card mb-3">
-    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-      <div class="fw-semibold">Plantillas</div>
-      <div class="btn-group" role="group">
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">Ontracking</a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">Log Tarjetas</a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='mapa_habitaciones') }}">Mapa</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="filter-card">
-    <form method="post" enctype="multipart/form-data" class="row g-3">
-      <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1">Ontracking</label>
-        <input class="form-control" type="file" name="excel_ocupacion" accept=".xlsx,.xlsm,.xls">
-      </div>
-
-      <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1">Log Tarjetas (incluye FECHA)</label>
-        <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
-      </div>
-
-      <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1">Mapa</label>
-        <input class="form-control" type="file" name="excel_mapa_habitaciones" accept=".xlsx,.xlsm,.xls">
-      </div>
-
-      <div class="col-12 d-flex justify-content-end">
-        <button class="btn btn-primary-custom" type="submit">Guardar</button>
-      </div>
+    {% if has_data %}
+    <form method="post" action="{{ url_for('admin_delete_all') }}" onsubmit="return confirm('¿Eliminar el lote completo?');">
+      <button class="btn btn-outline-danger btn-sm">
+        <i class="fa-solid fa-trash"></i> Eliminar lote completo
+      </button>
     </form>
+    {% endif %}
   </div>
 
+  {% if not has_data %}
+    <div class="text-muted">No hay datos. Importa archivos en “Carga”.</div>
+  {% else %}
+
+    <div class="filter-card mb-3">
+      <div class="row g-2">
+        <div class="col-12 col-md-4"><span class="fw-semibold">Ontracking:</span> {{ counts.ontracking }}</div>
+        <div class="col-12 col-md-4"><span class="fw-semibold">Log Tarjetas:</span> {{ counts.log }}</div>
+        <div class="col-12 col-md-4"><span class="fw-semibold">Mapa:</span> {{ counts.mapa }}</div>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item">
+        <a class="nav-link {% if tab=='ontracking' %}active{% endif %}" href="{{ url_for('preview', tab='ontracking') }}">Ontracking</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if tab=='log' %}active{% endif %}" href="{{ url_for('preview', tab='log') }}">Log Tarjetas</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if tab=='mapa' %}active{% endif %}" href="{{ url_for('preview', tab='mapa') }}">Mapa</a>
+      </li>
+    </ul>
+
+    {% if tab=='ontracking' %}
+      <div class="filter-card mb-3">
+        <form method="post" action="{{ url_for('admin_delete_ontracking_date') }}" class="row g-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label class="form-label fw-semibold mb-1">Eliminar Ontracking por DIA</label>
+            <input type="date" name="date" class="form-control">
+          </div>
+          <div class="col-12 col-md-3">
+            <button class="btn btn-outline-danger w-100" type="submit" onclick="return confirm('¿Eliminar Ontracking por fecha?');">
+              Eliminar por fecha
+            </button>
+          </div>
+        </form>
+      </div>
+    {% elif tab=='log' %}
+      <div class="filter-card mb-3">
+        <form method="post" action="{{ url_for('admin_delete_log_date') }}" class="row g-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label class="form-label fw-semibold mb-1">Eliminar Logs por FECHA (día)</label>
+            <input type="date" name="date" class="form-control">
+          </div>
+          <div class="col-12 col-md-3">
+            <button class="btn btn-outline-danger w-100" type="submit" onclick="return confirm('¿Eliminar logs por fecha?');">
+              Eliminar por fecha
+            </button>
+          </div>
+        </form>
+      </div>
+    {% endif %}
+
+    <div class="text-muted small mb-2">
+      Página {{ page }} / {{ total_pages }} · {{ total }} registros
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          {% if tab=='ontracking' %}
+          <tr>
+            <th>ID</th>
+            <th>DIA</th>
+            <th>LUGAR (Sxxxx)</th>
+            <th>RUT</th>
+            <th>NOMBRE</th>
+            <th>EMPRESA</th>
+            <th>INICIO</th>
+            <th>TERMINO</th>
+            <th></th>
+          </tr>
+          {% elif tab=='log' %}
+          <tr>
+            <th>ID</th>
+            <th>FECHA</th>
+            <th>HAB (Lxxxx-2)</th>
+            <th>DUEÑO</th>
+            <th>NRO TARJETA</th>
+            <th></th>
+          </tr>
+          {% else %}
+          <tr>
+            <th>ID</th>
+            <th>HAB (Sxxxx)</th>
+            <th>HKEYPLUS (Lxxxx-2)</th>
+            <th>MODULO</th>
+            <th>PISO</th>
+            <th></th>
+          </tr>
+          {% endif %}
+        </thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              {% if tab=='ontracking' %}
+                <td>{{ r.id }}</td>
+                <td>{{ r.dia }}</td>
+                <td>{{ r.lugar }}</td>
+                <td>{{ r.rut }}</td>
+                <td>{{ r.nombre }}</td>
+                <td>{{ r.empresa }}</td>
+                <td>{{ r.inicio }}</td>
+                <td>{{ r.termino }}</td>
+              {% elif tab=='log' %}
+                <td>{{ r.id }}</td>
+                <td>{{ r.fecha }}</td>
+                <td>{{ r.habitacion }}</td>
+                <td>{{ r.dueno_nombre or r.dueno_codigo }}</td>
+                <td>{{ r.nro_tarjeta }}</td>
+              {% else %}
+                <td>{{ r.id }}</td>
+                <td>{{ r.habitacion }}</td>
+                <td>{{ r.hkeyplus }}</td>
+                <td>{{ r.modulo }}</td>
+                <td>{{ r.piso }}</td>
+              {% endif %}
+
+              <td style="width:1%; white-space:nowrap;">
+                <form method="post" action="{{ url_for('admin_delete_row', dataset=tab, row_id=r.id) }}"
+                      onsubmit="return confirm('¿Eliminar este registro?');">
+                  <input type="hidden" name="tab" value="{{ tab }}">
+                  <input type="hidden" name="page" value="{{ page }}">
+                  <input type="hidden" name="per_page" value="{{ per_page }}">
+                  <button class="btn btn-outline-danger btn-sm">
+                    <i class="fa-solid fa-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page<=1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('preview', tab=tab, per_page=per_page, page=page-1) }}">Anterior</a>
+        </li>
+        <li class="page-item disabled"><span class="page-link">{{ page }}</span></li>
+        <li class="page-item {% if page>=total_pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('preview', tab=tab, per_page=per_page, page=page+1) }}">Siguiente</a>
+        </li>
+      </ul>
+    </nav>
+
+  {% endif %}
 </div>
 {% endblock %}
