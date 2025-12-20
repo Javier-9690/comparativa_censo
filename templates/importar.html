@@ -15,7 +15,7 @@
 
   <div class="filter-card mb-3">
     <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-      <div class="fw-semibold">Plantillas</div>
+      <div class="fw-semibold">Plantillas (incluyen hoja “GUIA” con tipo de dato y ejemplo)</div>
       <div class="btn-group" role="group">
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='ontracking') }}">Ontracking</a>
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('descargar_plantilla', template_key='log_tarjetas') }}">Log Tarjetas</a>
@@ -32,7 +32,7 @@
       </div>
 
       <div class="col-12 col-lg-4">
-        <label class="form-label fw-semibold mb-1">Log Tarjetas (incluye FECHA)</label>
+        <label class="form-label fw-semibold mb-1">Log Tarjetas (FECHA con hora)</label>
         <input class="form-control" type="file" name="excel_log_tarjetas" accept=".xlsx,.xlsm,.xls">
       </div>
 
@@ -47,7 +47,7 @@
     </form>
 
     <div class="text-muted small mt-2">
-      Puedes subir 1 archivo por vez. Si subes nuevamente uno del mismo tipo, se reemplaza ese dataset en el lote activo.
+      Puedes subir 1 archivo por vez. Si subes nuevamente uno del mismo tipo, se reemplaza ese dataset dentro del lote activo.
     </div>
   </div>
 
